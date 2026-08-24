@@ -16,6 +16,23 @@ PATTERNS = (
     ("bearer-token", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}")),
     ("private-key-block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}")),
+    ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35,}")),
+    ("stripe-key", re.compile(r"\b[sr]k_(?:live|test)_[0-9A-Za-z]{16,}")),
+    ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{30,}")),
+    ("pypi-token", re.compile(r"\bpypi-[A-Za-z0-9_-]{16,}")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),
+    # The catch-all for formats the specific patterns do not know. Keyed on the
+    # NAME rather than the value, because an unfamiliar credential format is
+    # unrecognisable by shape -- which is exactly the gap the specific patterns
+    # leave. Quoted, 12+ chars, no whitespace.
+    (
+        "assigned-credential",
+        re.compile(
+            r"(?i)[A-Za-z0-9_]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key"
+            r"|auth[_-]?key|private[_-]?key|credential)s?\s*[:=]\s*"
+            r"[\"'][^\"'\s]{12,}[\"']"
+        ),
+    ),
 )
 
 

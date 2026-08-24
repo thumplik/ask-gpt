@@ -5,9 +5,17 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 193 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
+> **Status: built and working.** 199 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
+
+## Whose account does this use?
+
+**Yours, and only yours.** ask-gpt never handles credentials. It shells out to your local
+`codex` binary, and Codex resolves authentication from your own `~/.codex` — so everyone
+who installs it authenticates themselves and spends their own ChatGPT quota. There is no
+shared account, no bundled token, and nothing in this repository grants access to anyone
+else's. If you are not logged in, the tool refuses and tells you to run `codex login`.
 
 ## Privacy — read this first
 
@@ -64,8 +72,11 @@ The two overrides cover different boundaries and are deliberately separate:
 
 Worth stating plainly rather than leaving you to discover them:
 
-- Content scanning matches the same six credential patterns as the payload scan. A
-  secret in an unusual format will not be caught.
+- Detection covers the common credential formats (OpenAI, GitHub, AWS, Slack, Google,
+  Stripe, npm, PyPI, JWTs, private-key blocks) plus a catch-all that keys on the
+  *variable name* — `DATABASE_PASSWORD = "…"` is flagged whatever the value looks like,
+  because an unfamiliar format is unrecognisable by shape. A secret in an unusual format
+  stored under an unrevealing name can still slip through.
 - It skips files over 256 KB, binaries, and vendor directories (`node_modules`, `.venv`,
   `target`, …). A key inside a vendored dependency will not be flagged.
 - Discussing credentials trips it. A conversation *about* secret detection contains
@@ -300,7 +311,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 193 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
+`make test` runs the full suite — 199 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
 
 ## Requirements
 

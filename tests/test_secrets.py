@@ -63,6 +63,30 @@ class ScanTest(unittest.TestCase):
         self.assertIn("openai-key", message)
         self.assertIn("--allow-secrets", message)
 
+    def test_detects_a_jwt(self):
+        self.assertTrue(
+            scan('t = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J"')
+        )
+
+    def test_detects_a_google_api_key(self):
+        self.assertTrue(scan('k = "AIzaSyD-abcdefghijklmnopqrstuvwxyz01234"'))
+
+    def test_detects_a_stripe_key(self):
+        self.assertTrue(scan('k = "sk_live_abcdefghij0123456789"'))
+
+    def test_detects_an_unfamiliar_format_by_its_variable_name(self):
+        # The gap the specific patterns leave: an unknown credential format is
+        # unrecognisable by shape, so this keys on the name instead.
+        findings = scan('DATABASE_PASSWORD = "Xq7!vbnm234ZZplok"')
+        self.assertEqual([f.name for f in findings], ["assigned-credential"])
+
+    def test_assignment_rule_ignores_short_values(self):
+        self.assertEqual(scan('password = "abc"'), [])
+
+    def test_assignment_rule_ignores_prose_and_comparisons(self):
+        self.assertEqual(scan("the password field is validated on submit"), [])
+        self.assertEqual(scan("if user_token == expected: pass"), [])
+
     def test_clean_text_yields_nothing(self):
         self.assertEqual(scan("def add(a, b):\n    return a + b\n"), [])
 
