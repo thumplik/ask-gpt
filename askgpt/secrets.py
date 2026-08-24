@@ -27,8 +27,15 @@ PATTERNS = (
     # leave. Quoted, 12+ chars, no whitespace.
     (
         "assigned-credential",
+        # The leading prefix is BOUNDED and lazy. An unbounded `[A-Za-z0-9_]*`
+        # here backtracks quadratically: on a long alphanumeric run with no
+        # keyword it retries the alternation at every position, O(n^2) over the
+        # file. That hung the content preflight on ordinary minified/blob files,
+        # not just crafted ones. A 40-char prefix covers real variable names
+        # (DATABASE_PASSWORD) while keeping the scan linear.
         re.compile(
-            r"(?i)[A-Za-z0-9_]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key"
+            r"(?i)(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,40}?"
+            r"(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key"
             r"|auth[_-]?key|private[_-]?key|credential)s?\s*[:=]\s*"
             r"[\"'][^\"'\s]{12,}[\"']"
         ),
