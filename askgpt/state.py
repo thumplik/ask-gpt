@@ -48,8 +48,28 @@ def save_thread(state_dir, claude_session, thread_id):
     return path
 
 
+def _legacy_session_file(state_dir, claude_session):
+    """The pre-hash filename. Threads written before session ids were hashed
+    live here; without a fallback an upgrade silently orphans every existing
+    conversation."""
+    name = UNSAFE.sub("_", str(claude_session)) or "unnamed"
+    return Path(state_dir) / "threads" / (name + ".json")
+
+
 def load_thread(state_dir, claude_session):
     path = _session_file(state_dir, claude_session)
+    if not path.is_file():
+        legacy = _legacy_session_file(state_dir, claude_session)
+        if legacy.is_file():
+            # Migrate on read: move it to the hashed name so the aliasing fix
+            # applies from here on, and the conversation survives the upgrade.
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(str(legacy), str(path))
+            except OSError:
+                path = legacy   # read-only state dir: still readable in place
+        else:
+            return None
     if not path.is_file():
         return None
     try:

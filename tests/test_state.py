@@ -49,6 +49,27 @@ class StateTest(unittest.TestCase):
         self.assertNotIn("/", path.name.replace(".json", ""))
         self.assertEqual(load_thread(self.dir, "../../evil"), "t")
 
+    def test_threads_written_before_hashing_still_resolve(self):
+        # The aliasing fix renamed thread files. Without a fallback, upgrading
+        # silently orphans every existing conversation.
+        import json
+
+        legacy = self.dir / "threads"
+        legacy.mkdir(parents=True, exist_ok=True)
+        (legacy / "manual-test.json").write_text(json.dumps({"thread_id": "OLD-T"}))
+        self.assertEqual(load_thread(self.dir, "manual-test"), "OLD-T")
+
+    def test_legacy_thread_is_migrated_to_the_hashed_name(self):
+        import json
+        from askgpt.state import _session_file
+
+        legacy = self.dir / "threads"
+        legacy.mkdir(parents=True, exist_ok=True)
+        (legacy / "manual-test.json").write_text(json.dumps({"thread_id": "OLD-T"}))
+        load_thread(self.dir, "manual-test")
+        self.assertTrue(_session_file(self.dir, "manual-test").is_file())
+        self.assertFalse((legacy / "manual-test.json").exists())
+
     def test_distinct_ids_that_sanitise_alike_do_not_collide(self):
         # "a/b", "a?b" and "a:b" all sanitise to "a_b"; without the hash they
         # would share one file and resume each other's threads.
