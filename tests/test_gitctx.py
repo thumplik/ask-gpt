@@ -130,6 +130,39 @@ class GitTargetTest(unittest.TestCase):
         target = resolve_target(self.repo, base="main")
         self.assertIn("merge base", target.instruction.lower())
 
+    def test_default_branch_prefers_origin_head_over_local_main(self):
+        # A local scratch branch named main must not beat the real upstream
+        # default. Without this, reordering the fallback chain passes the
+        # whole suite while resolving --base against the wrong branch.
+        git(self.repo, "checkout", "-q", "-b", "develop")
+        git(self.repo, "update-ref", "refs/remotes/origin/develop", "HEAD")
+        git(self.repo, "symbolic-ref", "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/develop")
+        self.assertEqual(default_branch(self.repo), "develop")
+
+    def test_default_branch_prefers_origin_master_over_local_main(self):
+        git(self.repo, "update-ref", "refs/remotes/origin/master", "HEAD")
+        self.assertEqual(default_branch(self.repo), "master")
+
+    def test_default_branch_hardcodes_main_when_nothing_matches(self):
+        git(self.repo, "branch", "-m", "main", "trunk")
+        self.assertEqual(default_branch(self.repo), "main")
+
+    def test_uncommitted_takes_precedence_over_base(self):
+        # Precedence is commit > uncommitted > base. The CLI makes these
+        # mutually exclusive, but this function's own contract should be pinned.
+        (self.repo / "x.txt").write_text("x\n")
+        target = resolve_target(self.repo, base="main", uncommitted=True)
+        self.assertEqual(target.kind, "uncommitted")
+
+    def test_base_with_no_commits_ahead_still_reviews_dirty_tree(self):
+        # Common: branch created, nothing committed yet, review requested.
+        git(self.repo, "checkout", "-q", "-b", "feature")
+        (self.repo / "wip.txt").write_text("w\n")
+        target = resolve_target(self.repo, base="main")
+        self.assertEqual(target.kind, "base")
+        self.assertIn("wip.txt", target.files)
+
 
 if __name__ == "__main__":
     unittest.main()

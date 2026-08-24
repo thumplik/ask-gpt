@@ -59,6 +59,12 @@ def default_branch(repo):
 
 
 def current_branch(repo):
+    """Branch name, or the literal "HEAD" when detached.
+
+    "HEAD" never equals default_branch(), so auto-detect routes a detached
+    HEAD into base mode. That is deliberate: reviewing against the default
+    branch is more useful there than reviewing an empty uncommitted set.
+    """
     return git(repo, "rev-parse", "--abbrev-ref", "HEAD")
 
 
@@ -89,6 +95,9 @@ def _dirty_files(repo):
             continue
         status, _, path = entry[:2], entry[2:3], entry[3:]
         # Rename/copy entries are followed by the ORIGINAL path as its own field.
+        # "C" is unreachable in practice -- `git status` has no copy-detection
+        # option, unlike `git diff` -- but the porcelain format documents it, so
+        # it is handled rather than assumed away.
         if status and status[0] in ("R", "C"):
             index += 1
         if path:
@@ -97,7 +106,13 @@ def _dirty_files(repo):
 
 
 def resolve_target(repo, base=None, commit=None, uncommitted=False):
-    """Resolve the review target. Exactly one mode wins; auto-detect if none."""
+    """Resolve the review target.
+
+    Precedence when more than one is given: commit > uncommitted > base.
+    The CLI makes them mutually exclusive, but the contract is pinned here
+    and by test_uncommitted_takes_precedence_over_base so it cannot drift.
+    With none given, auto-detect: non-default branch -> base, else uncommitted.
+    """
     if not is_git_repo(repo):
         raise NotAGitRepo("Not a git repository: " + str(repo))
 
