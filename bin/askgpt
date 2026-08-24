@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""ask-gpt: independent GPT review for Claude Code, via the Codex CLI."""
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from askgpt import codex, gitctx, preflight, prompts, runner, secrets, state, transcript
+from askgpt.artifacts import Artifacts
+from askgpt.errors import AskGptError
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def state_dir():
+    """Where thread ids live.
+
+    NOT inside the repo: an installed checkout may be read-only or shared, and
+    writing runtime state into it pollutes the working tree that this very tool
+    is asked to review. Overridable so tests never touch the real one.
+    """
+    return Path(os.environ.get("ASKGPT_STATE_DIR", Path.home() / ".askgpt"))
+
+
+def add_common(parser):
+    parser.add_argument("--dry-run", action="store_true", help="Build the payload; send nothing.")
+    parser.add_argument("--keep", action="store_true", help="Keep payload/response files.")
+    parser.add_argument("--model", default=runner.MODEL)
+    parser.add_argument("--allow-secrets", action="store_true")
+    parser.add_argument("--cwd", default=".")
+    parser.add_argument("--session-id", default=os.environ.get("ASKGPT_CLAUDE_SESSION"))
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="askgpt", description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    review = sub.add_parser("review", help="Adversarial review of the current change")
+    group = review.add_mutually_exclusive_group()
+    group.add_argument("--base", metavar="BRANCH")
+    group.add_argument("--commit", metavar="SHA")
+    group.add_argument("--uncommitted", action="store_true")
+    review.add_argument("--task")
+    review.add_argument("--task-file")
+    add_common(review)
+
+    ask = sub.add_parser("ask", help="Ask GPT anything, with conversation context")
+    ask.add_argument("question")
+    add_common(ask)
+
+    follow = sub.add_parser("follow", help="Continue the last GPT thread")
+    follow.add_argument("text")
+    add_common(follow)
+
+    return parser
+
+
+def dispatch(args, payload, resume_thread=None):
+    """Shared tail: scan, preflight, dispatch, persist, print."""
+    repo = Path(args.cwd).resolve()
+
+    findings = secrets.scan(payload)
+    if findings and not args.allow_secrets:
+        raise AskGptError(secrets.format_findings(findings))
+
+    # A dry run exists to be inspected, so its artifacts always survive.
+    with Artifacts(keep=args.keep or args.dry_run) as art:
+        payload_path = art.write("payload.md", payload)
+
+        if args.dry_run:
+            print("DRY RUN -- nothing sent. Payload kept at " + str(payload_path))
+            print()
+            print(payload)
+            return 0
+
+        hits = preflight.scan_tree(repo)
+        if hits:
+            print(preflight.format_warning(hits), file=sys.stderr)
+            print(file=sys.stderr)
+
+        codex_bin = codex.find_codex()
+        codex.check_auth(codex_bin)
+
+        result = runner.run(
+            codex_bin,
+            payload,
+            cwd=repo,
+            out_path=art.path("out.md"),
+            model=args.model,
+            resume_thread=resume_thread,
+        )
+
+        if result.thread_id and args.session_id:
+            state.save_thread(state_dir(), args.session_id, result.thread_id)
+
+        print(result.text)
+    return 0
+
+
+def cmd_review(args):
+    repo = Path(args.cwd).resolve()
+    target = gitctx.resolve_target(
+        repo, base=args.base, commit=args.commit, uncommitted=args.uncommitted
+    )
+    branch = gitctx.current_branch(repo)
+    task, source = prompts.resolve_task(
+        args.task, args.task_file, repo / "docs" / "superpowers" / "specs", branch
+    )
+    print(
+        "Target: " + target.description + " (" + str(len(target.files)) + " files) | "
+        "task source: " + source,
+        file=sys.stderr,
+    )
+    payload = prompts.build_review_payload(prompts.load_persona(REPO_ROOT), task, target)
+    return dispatch(args, payload)
+
+
+def _packed_transcript(args):
+    if not args.session_id:
+        print(
+            "warning: no --session-id given; falling back to the newest transcript by "
+            "mtime.\n         With two Claude sessions open in this directory that can "
+            "select the wrong one.",
+            file=sys.stderr,
+        )
+    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+    project_dir = transcript.project_dir_for(Path(args.cwd).resolve(), config_dir)
+    path = transcript.resolve_session(project_dir, args.session_id)
+    return transcript.pack(transcript.load_jsonl(path), drop_last_turns=1)
+
+
+def cmd_ask(args):
+    payload = prompts.build_ask_payload(args.question, _packed_transcript(args))
+    return dispatch(args, payload)
+
+
+def cmd_follow(args):
+    thread_id = state.load_thread(state_dir(), args.session_id or "")
+    if not thread_id:
+        raise AskGptError(
+            "No prior GPT thread for this session. Run `askgpt ask` or "
+            "`askgpt review` first."
+        )
+    return dispatch(args, args.text, resume_thread=thread_id)
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    handler = {"review": cmd_review, "ask": cmd_ask, "follow": cmd_follow}[args.command]
+    try:
+        return handler(args)
+    except AskGptError as error:
+        print("askgpt: " + str(error), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
