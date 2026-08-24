@@ -35,8 +35,10 @@ class StateTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_corrupt_state_is_treated_as_empty(self):
+        from askgpt.state import _session_file
+
         save_thread(self.dir, "claude-1", "thread-a")
-        (self.dir / "threads" / "claude-1.json").write_text("{ not json")
+        _session_file(self.dir, "claude-1").write_text("{ not json")
         self.assertIsNone(load_thread(self.dir, "claude-1"))
 
     def test_session_id_cannot_escape_the_state_directory(self):
@@ -46,6 +48,16 @@ class StateTest(unittest.TestCase):
         self.assertEqual(path.parent, self.dir / "threads")
         self.assertNotIn("/", path.name.replace(".json", ""))
         self.assertEqual(load_thread(self.dir, "../../evil"), "t")
+
+    def test_distinct_ids_that_sanitise_alike_do_not_collide(self):
+        # "a/b", "a?b" and "a:b" all sanitise to "a_b"; without the hash they
+        # would share one file and resume each other's threads.
+        save_thread(self.dir, "a/b", "thread-slash")
+        save_thread(self.dir, "a?b", "thread-query")
+        save_thread(self.dir, "a:b", "thread-colon")
+        self.assertEqual(load_thread(self.dir, "a/b"), "thread-slash")
+        self.assertEqual(load_thread(self.dir, "a?b"), "thread-query")
+        self.assertEqual(load_thread(self.dir, "a:b"), "thread-colon")
 
     def test_concurrent_writers_do_not_lose_sessions(self):
         import threading

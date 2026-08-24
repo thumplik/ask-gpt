@@ -140,9 +140,21 @@ def dispatch(args, payload, resume_thread=None):
         # `.env` and `*.pem`; content catches a live key pasted into an
         # ordinary source file, which Codex reads just as happily and which
         # filename matching cannot see.
+        external = preflight.external_symlinks(root)
+        if external and not args.allow_sensitive_files:
+            raise AskGptError(preflight.format_external_symlinks(external))
+
         content_hits = preflight.scan_contents(root)
         if content_hits and not args.allow_sensitive_files:
             raise AskGptError(preflight.format_content_warning(content_hits))
+
+        if preflight.coverage_is_partial(root):
+            # An incomplete scan must not read as a clean one.
+            print(
+                "note: the sensitive-file scan was incomplete (too many or "
+                "too-large files);\n      it is a check, not a guarantee.",
+                file=sys.stderr,
+            )
 
         hits = preflight.scan_tree(root)
         if hits and not args.allow_sensitive_files:

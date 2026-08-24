@@ -26,8 +26,14 @@ MAX_ARCHIVED_RESPONSES = 50
 
 
 def _session_file(state_dir, claude_session):
-    name = UNSAFE.sub("_", str(claude_session)) or "unnamed"
-    return Path(state_dir) / "threads" / (name + ".json")
+    # A readable name PLUS a hash of the ORIGINAL id. Lossy replacement alone
+    # aliases distinct sessions -- "a/b", "a?b" and "a:b" all become "a_b" --
+    # so one session could resume another's thread, the exact failure the
+    # per-session design exists to prevent. The hash disambiguates them.
+    raw = str(claude_session)
+    readable = UNSAFE.sub("_", raw) or "unnamed"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+    return Path(state_dir) / "threads" / (readable + "-" + digest + ".json")
 
 
 def save_thread(state_dir, claude_session, thread_id):

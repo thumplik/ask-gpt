@@ -76,6 +76,63 @@ def scan_tree(root, skip_dirs=SKIP_DIRS, limit=DEFAULT_LIMIT):
     return hits[:limit]
 
 
+def external_symlinks(root, skip_dirs=SKIP_CONTENT_DIRS, limit=DEFAULT_LIMIT):
+    """Symlinks whose target resolves OUTSIDE the repository.
+
+    Content scanning skips symlinks, but Codex follows them: `repo/config ->
+    ~/.aws/credentials` reads real credentials while matching no pattern. Such
+    links are a direct disclosure route and are reported, not skipped.
+    """
+    root = Path(root).resolve()
+    hits = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for name in list(dirnames) + filenames:
+            path = Path(dirpath, name)
+            if not path.is_symlink():
+                continue
+            try:
+                target = path.resolve()
+            except OSError:
+                continue
+            if root not in target.parents and target != root:
+                hits.append((path.relative_to(root), target))
+                if len(hits) >= limit:
+                    return hits
+    return hits
+
+
+def coverage_is_partial(root, skip_dirs=SKIP_CONTENT_DIRS):
+    """True when scan_contents would stop early (too many or too-large files),
+    so the caller can say the scan was incomplete rather than imply it was clean."""
+    root = Path(root)
+    scannable = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for filename in filenames:
+            path = Path(dirpath, filename)
+            try:
+                if path.is_symlink():
+                    continue
+                if path.stat().st_size > MAX_CONTENT_BYTES:
+                    return True
+            except OSError:
+                continue
+            scannable += 1
+            if scannable > MAX_CONTENT_FILES:
+                return True
+    return False
+
+
+def format_external_symlinks(hits):
+    lines = ["Symlinks that let Codex read OUTSIDE this repository:"]
+    for link, target in hits:
+        lines.append("  " + str(link) + " -> " + str(target))
+    lines.append("")
+    lines.append("Codex follows these. Remove them or pass --allow-sensitive-files.")
+    return "\n".join(lines)
+
+
 def scan_contents(root, limit=DEFAULT_LIMIT):
     """Find secret-shaped material INSIDE readable files.
 
