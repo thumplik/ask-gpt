@@ -551,8 +551,10 @@ class ProjectThreadTest(CliTestCase):
         threads.mkdir(parents=True, exist_ok=True)
         # a pre-existing project chat
         import askgpt.ledger as lg
+        from askgpt import state as _state
         project_key = "project-" + lg.project_slug(repo)
-        (threads / (project_key + ".json")).write_text('{"thread_id": "OLD-CHAT"}')
+        from askgpt import state as _state
+        _state.save_thread(self.root / "state", project_key, "OLD-CHAT")
 
         # A recorder, so the assertion inspects the actual resume argument
         # rather than inferring routing from thread files.
@@ -584,8 +586,11 @@ class ProjectThreadTest(CliTestCase):
         recorded = argv_log.read_text()
         self.assertIn("resume REV-T", recorded)
         self.assertNotIn("OLD-CHAT", recorded)
-        self.assertIn("REV-T", (threads / "sX.json").read_text())
-        self.assertIn("OLD-CHAT", (threads / (project_key + ".json")).read_text())
+        from askgpt import state as _state
+        self.assertEqual(_state.load_thread(self.root / "state", "sX"), "REV-T")
+        self.assertEqual(
+            _state.load_thread(self.root / "state", project_key), "OLD-CHAT"
+        )
 
     def test_review_threads_stay_keyed_by_session(self):
         # The load-bearing negative: a reviewer must not inherit its own past
@@ -596,8 +601,9 @@ class ProjectThreadTest(CliTestCase):
             "--cwd", str(repo), env=self.env(CODEX_BIN=self.working_codex()),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        from askgpt import state as _state
+        self.assertEqual(_state.load_thread(self.root / "state", "s1"), "TID42")
         threads = self.root / "state" / "threads"
-        self.assertTrue((threads / "s1.json").is_file())
         self.assertEqual(list(threads.glob("project-*.json")), [])
 
 
@@ -633,8 +639,8 @@ class FollowTest(CliTestCase):
                         "--cwd", str(repo), env=self.env(CODEX_BIN=codex))
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertIn("REVIEW TEXT", first.stdout)
-        saved = (self.root / "state" / "threads" / "s1.json").read_text()
-        self.assertIn("TID42", saved)
+        from askgpt import state as _state
+        self.assertEqual(_state.load_thread(self.root / "state", "s1"), "TID42")
 
         second = run_cli("follow", "and another thing", "--session-id", "s1",
                          "--cwd", str(repo), env=self.env(CODEX_BIN=codex))

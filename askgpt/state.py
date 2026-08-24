@@ -83,7 +83,7 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
         + "-"
         + UNSAFE.sub("_", str(thread_id or "nothread"))
         + "-"
-        + digest
+        + identity
         + ".md"
     )
     path = directory / name
