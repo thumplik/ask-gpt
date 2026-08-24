@@ -51,6 +51,20 @@ class FindCodexTest(unittest.TestCase):
         self.assertIn("/nope/a", message)
         self.assertIn("/nope/b", message)
 
+    def test_codex_bin_beats_a_real_path_match(self):
+        on_path = make_exe(self.dir, "codex")
+        override = make_exe(self.dir, "preferred-codex")
+        env = {"CODEX_BIN": str(override), "PATH": str(self.dir)}
+        self.assertEqual(find_codex(env=env, candidates=()), str(override))
+
+    def test_path_beats_candidates(self):
+        on_path = make_exe(self.dir, "codex")
+        candidate = make_exe(self.dir, "fallback-codex")
+        env = {"PATH": str(self.dir)}
+        self.assertEqual(
+            find_codex(env=env, candidates=(str(candidate),)), str(on_path)
+        )
+
 
 class CheckAuthTest(unittest.TestCase):
     def setUp(self):
@@ -75,6 +89,25 @@ class CheckAuthTest(unittest.TestCase):
 
         with self.assertRaises(CodexNotAuthenticated):
             check_auth(self._stub('echo "Not logged in"; exit 1'))
+
+    # The two cases below isolate each half of the `returncode == 0 AND
+    # "Logged in" in stdout` gate. Without them, an implementation checking
+    # only ONE of the two conditions passes the whole suite -- verified by
+    # mutation testing, where both half-implementations went undetected.
+
+    def test_rejects_clean_exit_without_logged_in_marker(self):
+        from askgpt.codex import check_auth
+        from askgpt.errors import CodexNotAuthenticated
+
+        with self.assertRaises(CodexNotAuthenticated):
+            check_auth(self._stub('echo "some other output"; exit 0'))
+
+    def test_rejects_logged_in_text_with_nonzero_exit(self):
+        from askgpt.codex import check_auth
+        from askgpt.errors import CodexNotAuthenticated
+
+        with self.assertRaises(CodexNotAuthenticated):
+            check_auth(self._stub('echo "Logged in using ChatGPT"; exit 1'))
 
 
 if __name__ == "__main__":
