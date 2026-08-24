@@ -1,0 +1,47 @@
+"""Secret detection for outbound payloads.
+
+Findings halt the run. Excerpts are redacted: printing a secret in order to
+warn about the secret defeats the purpose.
+"""
+
+import re
+from collections import namedtuple
+
+Finding = namedtuple("Finding", "name line excerpt")
+
+PATTERNS = (
+    ("openai-key", re.compile(r"\bsk-[A-Za-z0-9_-]{16,}")),
+    ("github-pat", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}")),
+    ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("bearer-token", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}")),
+    ("private-key-block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}")),
+)
+
+
+def _redact(match_text):
+    head = match_text[:6]
+    return head + "..." + str(len(match_text)) + " chars"
+
+
+def scan(text):
+    """Return a list of Finding for every secret-shaped match in `text`."""
+    findings = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        for name, pattern in PATTERNS:
+            for match in pattern.finditer(line):
+                findings.append(
+                    Finding(name=name, line=line_number, excerpt=_redact(match.group(0)))
+                )
+    return findings
+
+
+def format_findings(findings):
+    """Human-readable summary for the halt message."""
+    lines = ["Possible secrets detected in the payload:"]
+    for finding in findings:
+        lines.append("  line " + str(finding.line) + ": " + finding.name + " (" + finding.excerpt + ")")
+    lines.append("")
+    lines.append("Nothing was sent. Inspect the payload, then re-run with --allow-secrets")
+    lines.append("if these are false positives.")
+    return "\n".join(lines)
