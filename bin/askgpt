@@ -86,12 +86,16 @@ def dispatch(args, payload, resume_thread=None):
         )
 
     findings = secrets.scan(payload)
-    if findings and not args.allow_secrets:
-        raise AskGptError(secrets.format_findings(findings))
+    halting = bool(findings) and not args.allow_secrets
 
-    # A dry run exists to be inspected, so its artifacts always survive.
-    with Artifacts(keep=args.keep or args.dry_run) as art:
+    # A dry run exists to be inspected, so its artifacts always survive -- and
+    # so does a payload we refused to send, otherwise "inspect the payload"
+    # names a file that was never written.
+    with Artifacts(keep=args.keep or args.dry_run or halting) as art:
         payload_path = art.write("payload.md", payload)
+
+        if halting:
+            raise AskGptError(secrets.format_findings(findings, payload_path))
 
         if args.dry_run:
             print("DRY RUN -- nothing sent. Payload kept at " + str(payload_path))

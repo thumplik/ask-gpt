@@ -138,6 +138,22 @@ class SecretGateTest(CliTestCase):
         self.assertIn("secret", (result.stderr + result.stdout).lower())
         self.assertFalse(self.marker.exists())
 
+    def test_halt_names_a_payload_that_actually_exists(self):
+        # The message says "inspect the payload"; that is useless if the scan
+        # aborts before the payload is ever written.
+        repo = self.make_repo()
+        # Deliberately NOT --dry-run: that sets keep on its own and would mask
+        # whether the halt itself preserves the payload.
+        result = run_cli(
+            "review", "--uncommitted", "--task", "key is " + SECRET,
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "codex-was-run").exists())
+        named = [w for w in result.stderr.split() if w.endswith("payload.md")]
+        self.assertTrue(named, result.stderr)
+        self.assertTrue(Path(named[0]).is_file())
+
     def test_secret_warning_does_not_reprint_the_secret(self):
         repo = self.make_repo()
         result = run_cli(

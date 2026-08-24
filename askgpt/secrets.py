@@ -40,12 +40,20 @@ def scan(text):
     return findings
 
 
-def format_findings(findings):
-    """Human-readable summary for the halt message."""
+def format_findings(findings, payload_path=None):
+    """Human-readable summary for the halt message.
+
+    Takes the payload path because telling someone to "inspect the payload"
+    without saying where it is makes the advice impossible to follow.
+    """
     lines = ["Possible secrets detected in the payload:"]
     for finding in findings:
         lines.append("  line " + str(finding.line) + ": " + finding.name + " (" + finding.excerpt + ")")
     lines.append("")
-    lines.append("Nothing was sent. Inspect the payload, then re-run with --allow-secrets")
-    lines.append("if these are false positives.")
+    lines.append("Nothing was sent.")
+    if payload_path:
+        lines.append("The payload is at " + str(payload_path) + " -- inspect that line,")
+        lines.append("then re-run with --allow-secrets if these are false positives.")
+    else:
+        lines.append("Re-run with --allow-secrets if these are false positives.")
     return "\n".join(lines)
