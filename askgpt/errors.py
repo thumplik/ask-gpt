@@ -25,6 +25,12 @@ class QuotaExhausted(AskGptError):
     """The ChatGPT plan's usage or rate limit was hit."""
 
 
+class GitCommandFailed(AskGptError):
+    """A git command exited non-zero. Distinct from NotAGitRepo: a bad commit
+    sha or an unknown base branch is a git failure, not a missing repository,
+    and conflating them tells the user to fix the wrong thing."""
+
+
 class NotAGitRepo(AskGptError):
     """A review was requested outside a git repository."""
 
