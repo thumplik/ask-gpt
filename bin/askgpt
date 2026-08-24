@@ -67,6 +67,13 @@ def build_parser():
     acc = sub.add_parser("accept", help="Record a review finding as an accepted risk")
     acc.add_argument("finding_id", metavar="ID", help="The finding's ID, e.g. F2")
     acc.add_argument("reason", help="Why this risk is acceptable")
+    acc.add_argument(
+        "--description",
+        default="",
+        help="What the finding WAS (file:line + its own words). Without this the "
+             "entry cannot be matched in later reviews, since F-IDs are per-review "
+             "ordinals.",
+    )
     acc.add_argument("--cwd", default=".")
 
     unacc = sub.add_parser("unaccept", help="Remove an accepted risk from the ledger")
@@ -78,6 +85,12 @@ def build_parser():
 
     follow = sub.add_parser("follow", help="Continue the last GPT thread")
     follow.add_argument("text")
+    follow.add_argument(
+        "--project",
+        action="store_true",
+        help="Continue the project conversation even when this session has a "
+             "review thread.",
+    )
     add_common(follow)
 
     return parser
@@ -183,7 +196,8 @@ def dispatch(args, payload, resume_thread=None):
         # Always archive the complete response, so a truncated relay is
         # detectable by comparing against the recorded length and hash.
         archive, digest, size = state.archive_response(
-            state_dir(), args.session_id, result.thread_id, result.text
+            state_dir(), args.session_id, result.thread_id, result.text,
+            payload=payload,
         )
         print(
             "full response: " + str(size) + " bytes, sha256:" + digest + "\n"
@@ -249,16 +263,52 @@ def _packed_transcript(args):
 
 
 def cmd_ask(args):
-    args._thread_key = "project-" + ledger.project_slug(Path(args.cwd).resolve())
+    # repo_root, not cwd: asking from a subdirectory must continue the same
+    # project conversation, not fork a second one.
+    args._thread_key = "project-" + ledger.project_slug(
+        gitctx.repo_root(Path(args.cwd).resolve())
+    )
     payload = prompts.build_ask_payload(args.question, _packed_transcript(args))
     return dispatch(args, payload)
 
 
 def cmd_accept(args):
     repo = gitctx.repo_root(Path(args.cwd).resolve())
-    ledger.accept(state_dir(), repo, args.finding_id, args.reason)
-    print("Accepted " + args.finding_id + " for " + str(repo))
+    description = args.description
+    if not description:
+        # Best effort: pull the finding's own text out of the most recent
+        # archived review, so the ledger entry describes what was accepted
+        # even when the user only typed the ID.
+        description = _finding_from_archive(args.finding_id)
+    if not description:
+        print(
+            "askgpt: cannot identify " + args.finding_id + ". F-IDs are ordinals "
+            "within one review,\nso an entry without a description matches nothing "
+            "later. Pass --description\nwith file:line and the finding's own words.",
+            file=sys.stderr,
+        )
+        return 1
+    ledger.accept(state_dir(), repo, args.finding_id, args.reason, description)
+    print("Accepted " + args.finding_id + ": " + description[:80])
     return 0
+
+
+def _finding_from_archive(finding_id):
+    """The finding's text from the newest archived review mentioning its ID."""
+    directory = state_dir() / "responses"
+    if not directory.is_dir():
+        return ""
+    for path in sorted(directory.glob("*.md"), key=lambda p: p.stat().st_mtime,
+                       reverse=True):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        marker = finding_id + ":"
+        for para in text.split("\n\n"):
+            if finding_id in para.split("\n")[0] or marker in para:
+                return " ".join(para.split())[:400]
+    return ""
 
 
 def cmd_unaccept(args):
@@ -287,13 +337,29 @@ def cmd_usage(args):
 
 
 def cmd_follow(args):
-    # Prefer this project's conversation; fall back to session-keyed threads
-    # so a follow-up to a review in THIS session still works.
-    project_key = "project-" + ledger.project_slug(Path(args.cwd).resolve())
-    args._thread_key = project_key
-    thread_id = state.load_thread(state_dir(), project_key) or state.load_thread(
-        state_dir(), args.session_id or ""
+    """Continue a conversation. Two distinct targets, chosen explicitly:
+
+    A review thread from THIS session wins by default -- immediately after
+    /gptreview, "follow" means "argue with that review", and routing it into
+    an old advisory chat argues with the wrong context. The project chat is
+    reached with --project. Crucially, following a review NEVER saves into
+    the project key: promoting a memoryless reviewer's framing into permanent
+    project memory would undo the separation on purpose built here.
+    """
+    project_key = "project-" + ledger.project_slug(
+        gitctx.repo_root(Path(args.cwd).resolve())
     )
+    session_thread = state.load_thread(state_dir(), args.session_id or "")
+
+    if getattr(args, "project", False):
+        args._thread_key = project_key
+        thread_id = state.load_thread(state_dir(), project_key)
+    elif session_thread:
+        args._thread_key = args.session_id      # review follow stays session-keyed
+        thread_id = session_thread
+    else:
+        args._thread_key = project_key
+        thread_id = state.load_thread(state_dir(), project_key)
     if not thread_id and not args.session_id:
         # Mirror the ask-path fallback so an unkeyed ask can still be followed.
         try:

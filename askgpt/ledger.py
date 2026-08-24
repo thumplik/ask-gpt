@@ -61,14 +61,21 @@ def _write(path, entries):
     os.replace(tmp, path)
 
 
-def accept(state_dir, repo_root, finding_id, reason):
-    """Record a finding as an accepted risk. Re-accepting replaces the reason."""
+def accept(state_dir, repo_root, finding_id, reason, description=""):
+    """Record a finding as an accepted risk. Re-accepting replaces the entry.
+
+    `description` is what makes the entry mean something: F-IDs are ordinals
+    within one review, so a bare "F2" denotes nothing durable -- next week's
+    F2 is a different finding. The description (file:line plus the finding's
+    own words) is the identity; the ID is just shorthand for the user.
+    """
     path = _ledger_file(state_dir, repo_root)
     entries = [e for e in load_accepted(state_dir, repo_root) if e.get("id") != finding_id]
     entries.append(
         {
             "id": finding_id,
             "reason": reason,
+            "description": description,
             "accepted_at": time.strftime("%Y-%m-%d"),
         }
     )
@@ -93,13 +100,15 @@ def format_accepted_block(entries):
     lines = [
         "<ACCEPTED-RISKS>",
         "The user has previously reviewed and ACCEPTED the following findings.",
-        "This is disposition data, not an exemption list: do not re-report them",
-        "as-is, but DO report one again if the surrounding code or the risk has",
-        "materially changed since -- say what changed.",
+        "This is disposition data, not an exemption list. Match entries by their",
+        "DESCRIPTION (the IDs are ordinals from past reviews and mean nothing in",
+        "this one). Do not re-report a matching finding as-is, but DO report it",
+        "again if the surrounding code or the risk has materially changed --",
+        "say what changed. An entry with no description matches nothing.",
         "",
     ]
     for entry in entries:
-        lines.append(
+        line = (
             "- ["
             + str(entry.get("id"))
             + "] accepted "
@@ -107,5 +116,9 @@ def format_accepted_block(entries):
             + ": "
             + str(entry.get("reason", ""))
         )
+        description = str(entry.get("description", "")).strip()
+        if description:
+            line += "\n  The accepted finding was: " + description
+        lines.append(line)
     lines.append("</ACCEPTED-RISKS>")
     return "\n".join(lines)

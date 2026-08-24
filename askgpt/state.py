@@ -53,7 +53,7 @@ def load_thread(state_dir, claude_session):
     return data.get("thread_id") if isinstance(data, dict) else None
 
 
-def archive_response(state_dir, claude_session, thread_id, text):
+def archive_response(state_dir, claude_session, thread_id, text, payload=None):
     """Persist the complete response and return (path, sha, byte_count).
 
     The relay-verbatim contract lived only as prose, and it failed the second
@@ -81,7 +81,17 @@ def archive_response(state_dir, claude_session, thread_id, text):
     with os.fdopen(fd, "wb") as handle:
         handle.write(raw)
 
+    if payload is not None:
+        # The payload snapshot makes dispositions auditable: once the ledger
+        # changes, this is the only record of which accepted-risks block
+        # actually influenced a given review.
+        side = path.with_suffix(".payload.md")
+        fd = os.open(str(side), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload.encode("utf-8"))
+
     _prune(directory)
+    _prune(directory.parent / "responses", keep=MAX_ARCHIVED_RESPONSES)
     return path, digest, len(raw)
 
 
