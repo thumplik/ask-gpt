@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 199 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
+> **Status: built and working.** 208 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -113,9 +113,16 @@ question / review request
 
 Two entry points over one shared layer:
 
-- **`/gptreview`** — adversarial review of your branch or working tree. GPT sees your
-  original task and the code, but *not* Claude's account of what it did. A reviewer that
-  has read the defendant's summary is not an independent reviewer.
+- **`/gptreview`** — **transcript-blind** adversarial review of your branch or working
+  tree. GPT sees your original task and the code, but *not* Claude's account of what it
+  did. A reviewer that has read the defendant's summary is not independent.
+
+  The honest label is *transcript-blind review by a second model*, not *independent
+  review*. Claude still decides when to run it, what it covers, and how the answer is
+  relayed — so it is an advisory channel, not a gate. Two consequences worth knowing:
+  Claude's reasoning still reaches the reviewer through code comments, specs and commit
+  messages, and every review archives its full text with a length and hash so a
+  truncated relay is detectable rather than silent.
 - **`/askgpt <question>`** — a general second opinion, with the recent conversation
   attached. Dialogue is passed through word for word; tool payloads are omitted, apart
   from failed command output, which is kept within a size cap because it is usually the
@@ -272,6 +279,21 @@ which the output says plainly, and every review refreshes it.
 Each review also prints a one-line `quota: N% of the plan window used` footer, so you
 see the trend without asking.
 
+### Knowing when to stop
+
+An adversarial reviewer will always find something, so "run another round" is not a
+release criterion. The rule the skill follows:
+
+| Finding | Action |
+|---|---|
+| Blocker / High with a concrete failure scenario | Fix it |
+| Anything you doubt | Verify before acting — an unreproducible finding is not yet real |
+| Medium / Low with no demonstrated failure | Log it, do not fix it |
+| Proposes new capability rather than repairing a defect | Not a finding; it is scope |
+
+Stop when no unfixed Blocker or High remains. Review output is evidence, not a work
+queue — treating it as one converts every review into unbounded scope.
+
 ### Continuing the conversation
 
 Reviews are threads, not one-shots. After a review you can push back:
@@ -311,7 +333,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 199 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
+`make test` runs the full suite — 208 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
 
 ## Requirements
 

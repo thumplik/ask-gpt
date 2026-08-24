@@ -162,6 +162,17 @@ def dispatch(args, payload, resume_thread=None):
         if args.keep:
             print("Artifacts kept in " + str(art.dir), file=sys.stderr)
 
+        # Always archive the complete response, so a truncated relay is
+        # detectable by comparing against the recorded length and hash.
+        archive, digest, size = state.archive_response(
+            state_dir(), args.session_id, result.thread_id, result.text
+        )
+        print(
+            "full response: " + str(size) + " bytes, sha256:" + digest + "\n"
+            "               " + str(archive),
+            file=sys.stderr,
+        )
+
         print(result.text)
 
         # Codex refreshed its own rate-limit record during that run, so this
