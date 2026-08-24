@@ -32,10 +32,13 @@ def find_codex(env=None, candidates=DEFAULT_CANDIDATES) -> str:
         if _usable(expanded):
             return expanded
 
-    on_path = shutil.which("codex", path=env.get("PATH", ""))
+    searched_path = env.get("PATH", "")
+    on_path = shutil.which("codex", path=searched_path)
     if on_path:
         return on_path
-    tried.append("codex (searched PATH)")
+    # Report the PATH actually searched: when PATH itself is the problem (an
+    # empty or minimal environment), "searched PATH" alone is not diagnostic.
+    tried.append("codex on PATH (" + (searched_path or "<empty>") + ")")
 
     for candidate in candidates:
         expanded = os.path.expanduser(candidate)
@@ -60,10 +63,30 @@ def check_auth(codex_bin: str, timeout: int = 30) -> None:
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        raise CodexNotAuthenticated("`codex login status` timed out.")
+        raise CodexNotAuthenticated(
+            "`codex login status` timed out after " + str(timeout) + "s."
+        ) from None
+    except OSError as error:
+        # errors.py sets the contract: every user-facing failure is an
+        # AskGptError. find_codex validates the path, but check_auth accepts
+        # any path and the binary can vanish between the two calls -- without
+        # this, the user gets a raw FileNotFoundError traceback.
+        raise CodexNotFound(
+            "Could not execute " + str(codex_bin) + ": " + str(error)
+        ) from None
 
     if result.returncode != 0 or "Logged in" not in result.stdout:
-        raise CodexNotAuthenticated(
-            "Codex is not logged in. Run this yourself, then retry:\n\n"
-            "    " + codex_bin + " login\n"
+        # Do not assert "not logged in": a corrupt config, a missing library, or
+        # a network failure lands here too, and telling the user to run
+        # `codex login` would point them at the wrong fix. Show what Codex said.
+        message = (
+            "Codex is not logged in, or `codex login status` failed.\n"
+            "If you are logged out, run this yourself and retry:\n\n"
+            "    " + str(codex_bin) + " login\n"
         )
+        detail = (result.stderr or result.stdout or "").strip()
+        if detail:
+            message += (
+                "\nCodex said (exit " + str(result.returncode) + "):\n" + detail[:500]
+            )
+        raise CodexNotAuthenticated(message)

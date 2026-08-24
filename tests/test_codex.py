@@ -4,15 +4,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from askgpt.codex import find_codex
-from askgpt.errors import CodexNotFound
+from askgpt.codex import check_auth, find_codex
+from askgpt.errors import CodexNotAuthenticated, CodexNotFound
+
+
+def _write_script(path: Path, body: str) -> Path:
+    path.write_text("#!/bin/sh\n" + body + "\n")
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+    return path
 
 
 def make_exe(directory: Path, name: str = "codex") -> Path:
-    p = directory / name
-    p.write_text("#!/bin/sh\nexit 0\n")
-    p.chmod(p.stat().st_mode | stat.S_IEXEC)
-    return p
+    return _write_script(directory / name, "exit 0")
 
 
 class FindCodexTest(unittest.TestCase):
@@ -73,20 +76,12 @@ class CheckAuthTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def _stub(self, body: str) -> str:
-        p = self.dir / "codex-stub"
-        p.write_text("#!/bin/sh\n" + body + "\n")
-        p.chmod(p.stat().st_mode | stat.S_IEXEC)
-        return str(p)
+        return str(_write_script(self.dir / "codex-stub", body))
 
     def test_accepts_logged_in(self):
-        from askgpt.codex import check_auth
-
         check_auth(self._stub('echo "Logged in using ChatGPT"'))
 
     def test_rejects_logged_out(self):
-        from askgpt.codex import check_auth
-        from askgpt.errors import CodexNotAuthenticated
-
         with self.assertRaises(CodexNotAuthenticated):
             check_auth(self._stub('echo "Not logged in"; exit 1'))
 
@@ -96,18 +91,25 @@ class CheckAuthTest(unittest.TestCase):
     # mutation testing, where both half-implementations went undetected.
 
     def test_rejects_clean_exit_without_logged_in_marker(self):
-        from askgpt.codex import check_auth
-        from askgpt.errors import CodexNotAuthenticated
-
         with self.assertRaises(CodexNotAuthenticated):
             check_auth(self._stub('echo "some other output"; exit 0'))
 
     def test_rejects_logged_in_text_with_nonzero_exit(self):
-        from askgpt.codex import check_auth
-        from askgpt.errors import CodexNotAuthenticated
-
         with self.assertRaises(CodexNotAuthenticated):
             check_auth(self._stub('echo "Logged in using ChatGPT"; exit 1'))
+
+    def test_missing_binary_raises_codex_not_found(self):
+        with self.assertRaises(CodexNotFound):
+            check_auth(str(self.dir / "does-not-exist"))
+
+    def test_timeout_is_reported_as_not_authenticated(self):
+        with self.assertRaises(CodexNotAuthenticated):
+            check_auth(self._stub("sleep 5"), timeout=1)
+
+    def test_failure_message_includes_what_codex_said(self):
+        with self.assertRaises(CodexNotAuthenticated) as ctx:
+            check_auth(self._stub('echo "config parse error" >&2; exit 2'))
+        self.assertIn("config parse error", str(ctx.exception))
 
 
 if __name__ == "__main__":
