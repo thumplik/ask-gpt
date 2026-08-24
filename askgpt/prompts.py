@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from .errors import AskGptError
+
 NO_TASK_NOTICE = (
     "No authoritative task statement is available for this change.\n"
     "Do NOT guess what was intended. Review the code on its own terms:\n"
@@ -41,7 +43,11 @@ def resolve_task(explicit_text, task_file, spec_dir, branch):
         return explicit_text, "--task"
 
     if task_file:
-        return Path(task_file).read_text(encoding="utf-8"), "--task-file " + str(task_file)
+        try:
+            body = Path(task_file).read_text(encoding="utf-8")
+        except OSError as error:
+            raise AskGptError("Could not read --task-file: " + str(error)) from None
+        return body, "--task-file " + str(task_file)
 
     spec_dir = Path(spec_dir)
     if branch and spec_dir.is_dir():

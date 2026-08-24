@@ -2,6 +2,7 @@
 
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .errors import GitCommandFailed, NotAGitRepo, NothingToReview
 
@@ -31,6 +32,18 @@ def is_git_repo(repo):
         return git(repo, "rev-parse", "--is-inside-work-tree") == "true"
     except GitCommandFailed:
         return False
+
+
+def repo_root(path):
+    """The repository top level, or `path` unchanged when it is not in a repo.
+
+    The privacy preflight must cover everything Codex can read, which is the
+    whole repository -- not whichever subdirectory happened to be passed.
+    """
+    try:
+        return Path(git(path, "rev-parse", "--show-toplevel"))
+    except GitCommandFailed:
+        return Path(path)
 
 
 def default_branch(repo):

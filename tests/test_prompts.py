@@ -113,6 +113,20 @@ class ResolveTaskTest(unittest.TestCase):
         text, source = resolve_task(None, path, self.dir, "feature")
         self.assertEqual(text, "from file")
 
+    def test_missing_task_file_is_a_clean_error(self):
+        from askgpt.errors import AskGptError
+
+        with self.assertRaises(AskGptError):
+            resolve_task(None, self.dir / "nope.md", self.dir, "feature")
+
+    def test_branch_prefix_is_stripped_when_matching_a_spec(self):
+        # "build-ask-gpt" is not a substring of a dated spec filename, so exact
+        # matching meant this fallback never fired on a real branch name.
+        (self.dir / "2026-01-01-ask-gpt-design.md").write_text("the spec")
+        text, source = resolve_task(None, None, self.dir, "build-ask-gpt")
+        self.assertEqual(text, "the spec")
+        self.assertIn("spec", source)
+
     def test_explicit_text_beats_task_file(self):
         path = self.dir / "task.md"
         path.write_text("from file")

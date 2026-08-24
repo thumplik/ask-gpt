@@ -179,9 +179,13 @@ def run(
         # Any non-zero exit is a failure, even when out.md holds partial or stale
         # content. Returning that text as a result would report an auth, quota, or
         # transport failure as a successful review.
+        # Use the extracted diagnostics, not stderr alone: real Codex errors
+        # arrive as structured events on STDOUT with stderr empty, so reporting
+        # stderr gave the user an exit code and nothing else.
         message = (
             "Codex exited " + str(proc.returncode) + ". Not retrying (retries burn "
-            "subscription quota).\n\n" + (proc.stderr or "").strip()
+            "subscription quota).\n\n"
+            + (diagnostics.strip() or "(no diagnostics)")
         )
         if text:
             message += "\n\nPartial output before the failure:\n" + text

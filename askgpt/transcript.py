@@ -145,8 +145,12 @@ def pack(
         if failed_chars and failed_used + failed_chars > fail_budget:
             continue
         if used + len(rendered) > budget:
+            # `continue`, not `break`. Turn sizes vary wildly, so one oversized
+            # recent turn does NOT imply older turns cannot fit -- breaking here
+            # discarded every older turn and could return nothing but the
+            # omission marker. (An earlier comment claimed the opposite.)
             truncated = True
-            break
+            continue
         chosen.append(rendered)
         used += len(rendered)
         failed_used += failed_chars

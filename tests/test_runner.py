@@ -163,6 +163,24 @@ class RunTest(unittest.TestCase):
         self.assertNotIsInstance(ctx.exception, QuotaExhausted)
         self.assertIn("connection reset", str(ctx.exception))
 
+    def test_generic_failure_surfaces_stdout_diagnostics(self):
+        # Real Codex errors are structured events on stdout with stderr empty,
+        # so reporting stderr alone gave the user an exit code and nothing else.
+        stub = self._stub(
+            "import sys\n"
+            "print('{\"type\":\"error\",\"message\":\"connection reset\"}')\n"
+            "sys.exit(1)\n"
+        )
+        with self.assertRaises(AskGptError) as ctx:
+            run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertIn("connection reset", str(ctx.exception))
+
+    def test_exit_zero_without_output_is_an_error(self):
+        stub = self._stub("import sys\nsys.exit(0)\n")
+        with self.assertRaises(AskGptError) as ctx:
+            run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertIn("no response", str(ctx.exception).lower())
+
     def test_quota_exhaustion_is_reported_plainly(self):
         stub = self._stub(
             "import sys\n"

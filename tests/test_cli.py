@@ -263,6 +263,22 @@ class PlumbingTest(CliTestCase):
         self.assertIn(".env", result.stderr)
         self.assertFalse(marker.exists(), "Codex ran despite sensitive files")
 
+    def test_preflight_covers_the_repo_root_not_just_cwd(self):
+        # Codex reads the enclosing repository, so a .env one level above the
+        # requested subdirectory is exposed while that subdirectory looks clean.
+        repo = self.make_repo()
+        (repo / ".env").write_text("TOKEN=x\n")
+        sub = repo / "src"
+        sub.mkdir()
+        (sub / "mod.py").write_text("x = 1\n")
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T",
+            "--cwd", str(sub), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".env", result.stderr)
+        self.assertFalse((self.root / "codex-was-run").exists())
+
     def test_allow_sensitive_files_overrides_the_halt(self):
         repo = self.make_repo()
         (repo / ".env").write_text("TOKEN=x\n")

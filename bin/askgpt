@@ -90,7 +90,11 @@ def dispatch(args, payload, resume_thread=None):
             print(payload)
             return 0
 
-        hits = preflight.scan_tree(repo)
+        # Scan the whole repository, not --cwd. Codex operates inside the
+        # enclosing repo and can read files above the requested subdirectory,
+        # so scanning only the subdirectory leaves a `.env` one level up
+        # exposed while reporting the tree clean.
+        hits = preflight.scan_tree(gitctx.repo_root(repo))
         if hits and not args.allow_sensitive_files:
             # Halt, do not narrate. Printing a warning and dispatching in the
             # same breath is not a protection: by the time the user reads it

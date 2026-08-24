@@ -67,6 +67,17 @@ class PackTest(unittest.TestCase):
         self.assertNotIn("OLDEST", out)
         self.assertIn("earlier turns omitted", out)
 
+    def test_oversized_recent_turn_does_not_discard_smaller_older_ones(self):
+        # Turn sizes vary, so one huge recent turn does not mean older turns
+        # cannot fit. `break` here returned nothing but the omission marker.
+        records = [
+            {"type": "user", "message": {"role": "user", "content": "SMALL OLD"}},
+            {"type": "user", "message": {"role": "user", "content": "H" * 5000}},
+        ]
+        out = pack(records, budget=200)
+        self.assertIn("SMALL OLD", out)
+        self.assertIn("earlier turns omitted", out)
+
     def test_drop_last_turns_removes_the_invocation(self):
         records = [
             {"type": "user", "message": {"role": "user", "content": "keep me"}},
