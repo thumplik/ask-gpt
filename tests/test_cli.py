@@ -378,12 +378,35 @@ class PlumbingTest(CliTestCase):
 class LedgerCliTest(CliTestCase):
     def test_accept_risks_roundtrip(self):
         repo = self.make_repo(dirty=False)
-        result = run_cli("accept", "F2", "trusted input only", "--cwd", str(repo),
-                         env=self.env())
+        result = run_cli("accept", "F2", "trusted input only",
+                         "--description", "config.py:10 uses eval on trusted input",
+                         "--cwd", str(repo), env=self.env())
         self.assertEqual(result.returncode, 0, result.stderr)
         listing = run_cli("risks", "--cwd", str(repo), env=self.env())
         self.assertIn("F2", listing.stdout)
         self.assertIn("trusted input only", listing.stdout)
+
+    def test_accept_without_identity_is_refused(self):
+        # F-IDs are per-review ordinals; an entry that cannot say WHAT was
+        # accepted matches nothing later and quietly suppresses the wrong
+        # finding. No description and no archive to resolve from -> refuse.
+        repo = self.make_repo(dirty=False)
+        result = run_cli("accept", "F2", "some reason", "--cwd", str(repo),
+                         env=self.env())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("description", result.stderr.lower())
+
+    def test_payload_block_carries_the_finding_description(self):
+        repo = self.make_repo()
+        run_cli("accept", "F1", "tolerated",
+                "--description", "b.py:7 race on the cache file",
+                "--cwd", str(repo), env=self.env())
+        result = run_cli(
+            "review", "--uncommitted", "--dry-run", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertIn("race on the cache file", result.stdout)
+        self.assertIn("mean nothing", result.stdout)  # IDs disclaimed as ordinals
 
     def test_unaccept_missing_id_fails(self):
         repo = self.make_repo(dirty=False)
@@ -392,8 +415,9 @@ class LedgerCliTest(CliTestCase):
 
     def test_review_payload_carries_accepted_risks(self):
         repo = self.make_repo()
-        run_cli("accept", "F1", "known and tolerated", "--cwd", str(repo),
-                env=self.env())
+        run_cli("accept", "F1", "known and tolerated",
+                "--description", "a.py:1 shells out without quoting",
+                "--cwd", str(repo), env=self.env())
         result = run_cli(
             "review", "--uncommitted", "--dry-run", "--task", "T",
             "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
@@ -441,6 +465,57 @@ class ProjectThreadTest(CliTestCase):
         second = run_cli("follow", "q2", "--session-id", "bbbb", "--cwd", str(repo),
                          env=self.env(CLAUDE_CONFIG_DIR=str(config), CODEX_BIN=codex))
         self.assertEqual(second.returncode, 0, second.stderr)
+
+    def test_ask_from_a_subdirectory_continues_the_same_project_thread(self):
+        repo = self.make_repo()
+        sub = repo / "pkg"
+        sub.mkdir()
+        config = self.make_transcript_for(repo, "cccc")
+        codex = self.working_codex(thread_id="ROOT-T")
+        # Ask from the SUBDIRECTORY: with cwd-keying this forks a second
+        # project thread, which is exactly the bug under test. cwd == repo
+        # root would make that mutation invisible.
+        config_sub = self.make_transcript_for(sub, "cccc")
+        first = run_cli("ask", "q", "--session-id", "cccc", "--cwd", str(sub),
+                        env=self.env(CLAUDE_CONFIG_DIR=str(config_sub),
+                                     CODEX_BIN=codex))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        threads = self.root / "state" / "threads"
+        before = {p.name for p in threads.glob("project-*.json")}
+        second = run_cli("follow", "q2", "--project", "--session-id", "cccc",
+                         "--cwd", str(repo),
+                         env=self.env(CLAUDE_CONFIG_DIR=str(config), CODEX_BIN=codex))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        after = {p.name for p in threads.glob("project-*.json")}
+        self.assertEqual(before, after)  # no second thread forked from the subdir
+        self.assertEqual(len(after), 1)
+
+    def test_follow_after_review_targets_the_review_not_the_project_chat(self):
+        # Immediately after /gptreview, "follow" means "argue with that
+        # review". Routing it into an old advisory chat argues with the wrong
+        # context -- and must not overwrite the project thread either.
+        repo = self.make_repo()
+        threads = self.root / "state" / "threads"
+        threads.mkdir(parents=True, exist_ok=True)
+        # a pre-existing project chat
+        import askgpt.ledger as lg
+        project_key = "project-" + lg.project_slug(repo)
+        (threads / (project_key + ".json")).write_text('{"thread_id": "OLD-CHAT"}')
+
+        codex = self.working_codex(thread_id="REV-T")
+        review = run_cli("review", "--uncommitted", "--task", "T",
+                         "--session-id", "sX", "--cwd", str(repo),
+                         env=self.env(CODEX_BIN=codex))
+        self.assertEqual(review.returncode, 0, review.stderr)
+
+        follow = run_cli("follow", "F1 is wrong", "--session-id", "sX",
+                         "--cwd", str(repo), env=self.env(CODEX_BIN=codex))
+        self.assertEqual(follow.returncode, 0, follow.stderr)
+        argv = (self.root / "argv.txt")
+        # the recorder stub is not used here; assert via thread files instead:
+        # review thread resumed, project chat untouched
+        self.assertIn("REV-T", (threads / "sX.json").read_text())
+        self.assertIn("OLD-CHAT", (threads / (project_key + ".json")).read_text())
 
     def test_review_threads_stay_keyed_by_session(self):
         # The load-bearing negative: a reviewer must not inherit its own past

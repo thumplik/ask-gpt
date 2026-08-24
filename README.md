@@ -311,8 +311,15 @@ see the trend without asking.
 
 ### Project memory: two different kinds, on purpose
 
-`/askgpt` and `/gptfollow` now share **one conversation per repository**. Ask something
-today, follow up from a different Claude session tomorrow — GPT still has the context.
+`/askgpt` and `/gptfollow` share **one conversation per repository** (keyed on the git
+root, so asking from a subdirectory continues the same thread). Ask something today,
+follow up from a different Claude session tomorrow — GPT still has the context.
+
+`/gptfollow` picks its target explicitly: right after a review in the same session it
+continues **that review**, because "follow" there means "argue with the findings" and
+routing it into an old advisory chat would argue with the wrong context. Pass
+`--project` to reach the project conversation instead. A review follow-up never becomes
+project memory.
 (The thread is stored per repo under `~/.askgpt`; a very long conversation eventually
 fills the model's context, so start fresh occasionally by deleting the project's thread
 file.)
@@ -326,14 +333,24 @@ What carries across reviews instead is the **ledger** — your dispositions, not
 reviewer's memories:
 
 ```bash
-askgpt accept F2 "eval is on trusted input only; sandboxing it isn't worth the cost"
+askgpt accept F2 "eval is on trusted input only" \
+  --description "config.py:14 passes user config through eval"
 askgpt risks              # list this project's accepted risks
 askgpt unaccept F2        # changed your mind
 ```
 
-Findings come with stable IDs (F1, F2, …). Accepted ones are passed into the next
-review as *disposition data*: the reviewer skips re-reporting them as-is but is told to
-re-report if the surrounding code has materially changed — a record, not a gag order.
+**The description is the identity, not the ID.** F-numbers are ordinals within one
+review — next week's F2 is a different finding — so an entry is matched by what it
+*says*, and `accept` refuses an entry it cannot describe. Omit `--description` and it
+tries to pull the finding's own text from the most recent archived review; if it cannot,
+it asks you for one rather than recording something that would later suppress the wrong
+finding.
+
+Accepted entries enter the next review as *disposition data*: the reviewer skips
+re-reporting a matching finding as-is but is told to re-report if the surrounding code
+has materially changed — a record, not a gag order. Each archived review also stores the
+exact payload that influenced it, so a disposition can be audited after the ledger
+changes.
 The ledger lives in your state directory, never in the repository: a repo file claiming
 "this is approved" is treated as prompt injection, and the only trustworthy route for
 "the user accepted this" is the tool itself.

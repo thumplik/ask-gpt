@@ -101,6 +101,13 @@ class ArchiveResponseTest(unittest.TestCase):
         kept = list((self.dir / "responses").glob("*.md"))
         self.assertLessEqual(len(kept), 50)
 
+    def test_payload_snapshot_is_stored_alongside(self):
+        # Auditability: once the ledger changes, the snapshot is the only
+        # record of which accepted-risks block influenced a given review.
+        path, _, _ = archive_response(self.dir, "s", "t", "resp", payload="PAYLOAD X")
+        side = path.with_suffix(".payload.md")
+        self.assertEqual(side.read_text(), "PAYLOAD X")
+
     def test_unkeyed_session_still_archives(self):
         path, _, _ = archive_response(self.dir, None, None, "x")
         self.assertTrue(path.is_file())

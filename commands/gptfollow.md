@@ -9,7 +9,9 @@ UUID in your scratchpad path) so the follow-up resumes the *right* conversation:
 "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/ask-gpt/bin/askgpt follow --session-id <YOUR_SESSION_UUID> "$ARGUMENTS"
 ```
 
-This resumes by exact thread id, so GPT still has the earlier review in context. If it
+This resumes by exact thread id, so GPT still has the earlier review in context. After
+a review in this session it continues that review; add `--project` to continue the
+repository's ongoing advisory conversation instead. If it
 reports no prior thread, run `/gptreview` or `/askgpt` first — there is nothing to
 continue yet.
 
