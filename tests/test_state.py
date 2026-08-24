@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from askgpt.state import load_thread, save_thread
+from askgpt.state import archive_response, load_thread, save_thread
 
 
 class StateTest(unittest.TestCase):
@@ -63,6 +63,47 @@ class StateTest(unittest.TestCase):
             self.assertEqual(
                 load_thread(self.dir, "session-" + str(index)), "thread-" + str(index)
             )
+
+
+class ArchiveResponseTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_writes_the_complete_text(self):
+        path, _, _ = archive_response(self.dir, "s1", "t1", "FULL REVIEW BODY")
+        self.assertEqual(path.read_text(), "FULL REVIEW BODY")
+
+    def test_reports_length_and_hash_so_truncation_is_detectable(self):
+        _, digest, size = archive_response(self.dir, "s1", "t1", "abcdef")
+        self.assertEqual(size, 6)
+        self.assertEqual(len(digest), 12)
+
+    def test_different_text_gives_a_different_hash(self):
+        _, a, _ = archive_response(self.dir, "s1", "t1", "one")
+        _, b, _ = archive_response(self.dir, "s1", "t1", "two")
+        self.assertNotEqual(a, b)
+
+    def test_archive_file_is_0600(self):
+        import stat as statmod
+
+        path, _, _ = archive_response(self.dir, "s1", "t1", "x")
+        self.assertEqual(statmod.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_session_id_cannot_escape_the_archive_directory(self):
+        path, _, _ = archive_response(self.dir, "../../evil", "t", "x")
+        self.assertEqual(path.parent, self.dir / "responses")
+
+    def test_archive_is_pruned(self):
+        for i in range(60):
+            archive_response(self.dir, "s", "t", "body number " + str(i))
+        kept = list((self.dir / "responses").glob("*.md"))
+        self.assertLessEqual(len(kept), 50)
+
+    def test_unkeyed_session_still_archives(self):
+        path, _, _ = archive_response(self.dir, None, None, "x")
+        self.assertTrue(path.is_file())
 
 
 if __name__ == "__main__":

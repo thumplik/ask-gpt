@@ -384,6 +384,22 @@ class FollowTest(CliTestCase):
         self.assertIn("no prior", (result.stderr + result.stdout).lower())
         self.assertFalse(self.marker.exists())
 
+    def test_full_response_is_archived_with_length_and_hash(self):
+        # The relay-verbatim contract failed once in practice, silently.
+        # This makes a truncated relay checkable rather than invisible.
+        repo = self.make_repo()
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T", "--session-id", "s9",
+            "--cwd", str(repo),
+            env=self.env(CODEX_BIN=self.working_codex(body="COMPLETE REVIEW")),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("full response:", result.stderr)
+        self.assertIn("sha256:", result.stderr)
+        archived = [w for w in result.stderr.split() if w.endswith(".md")]
+        self.assertTrue(archived, result.stderr)
+        self.assertEqual(Path(archived[0]).read_text(), "COMPLETE REVIEW")
+
     def test_thread_id_is_saved_then_resumed(self):
         repo = self.make_repo()
         codex = self.working_codex(thread_id="TID42")
