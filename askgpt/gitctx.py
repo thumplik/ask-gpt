@@ -27,6 +27,21 @@ def git(repo, *args):
     return result.stdout.strip()
 
 
+def _names_z(repo, *args):
+    """Run a name-listing git command with -z and split on NUL.
+
+    Git allows newlines in filenames, so splitlines() invents extra paths and
+    inflates the file count. NUL-delimited output is unambiguous, matching how
+    the dirty-tree path already parses.
+    """
+    raw = subprocess.run(
+        ["git"] + list(args), cwd=str(repo), capture_output=True, text=True
+    )
+    if raw.returncode != 0:
+        raise GitCommandFailed(raw.stderr.strip())
+    return [f for f in raw.stdout.split("\0") if f]
+
+
 def is_git_repo(repo):
     try:
         return git(repo, "rev-parse", "--is-inside-work-tree") == "true"
@@ -130,9 +145,7 @@ def resolve_target(repo, base=None, commit=None, uncommitted=False):
         raise NotAGitRepo("Not a git repository: " + str(repo))
 
     if commit:
-        files = [
-            f for f in git(repo, "show", "--name-only", "--pretty=format:", commit).splitlines() if f
-        ]
+        files = _names_z(repo, "show", "--name-only", "-z", "--pretty=format:", commit)
         if not files:
             raise NothingToReview("Commit " + commit + " touches no files.")
         return Target(
@@ -181,9 +194,7 @@ def resolve_target(repo, base=None, commit=None, uncommitted=False):
     except GitCommandFailed:
         pass
     merge_base = git(repo, "merge-base", base_ref, "HEAD")
-    committed = [
-        f for f in git(repo, "diff", "--name-only", merge_base).splitlines() if f
-    ]
+    committed = _names_z(repo, "diff", "--name-only", "-z", merge_base)
     files = sorted(set(committed) | set(_dirty_files(repo)))
     if not files:
         raise NothingToReview("No changes relative to " + base + ".")

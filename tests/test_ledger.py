@@ -123,6 +123,22 @@ class LedgerTest(unittest.TestCase):
         accept(self.dir, self.repo, "F2", "r", "b.py:2 new")
         self.assertEqual(len(load_accepted(self.dir, self.repo)), 2)
 
+    def test_non_dict_entries_are_dropped_not_crashed(self):
+        # A hand-edited ledger can hold null or a bare string; downstream
+        # entry.get(...) would otherwise raise AttributeError.
+        import json
+        from askgpt.ledger import project_slug
+
+        target = self.dir / "projects" / project_slug(self.repo) / "ledger.json"
+        target.parent.mkdir(parents=True)
+        target.write_text(json.dumps({"accepted": [
+            None, "surprise", {"key": "k", "id": "F1", "description": "a.py:1 real"},
+        ]}))
+        entries = load_accepted(self.dir, self.repo)
+        self.assertEqual(len(entries), 1)
+        from askgpt.ledger import format_accepted_block
+        format_accepted_block(entries)  # must not raise
+
     def test_corrupt_ledger_loads_as_empty(self):
         accept(self.dir, self.repo, "R1", "x", "a.py:1 thing")
         files = list(self.dir.rglob("ledger.json"))

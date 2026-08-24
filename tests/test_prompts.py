@@ -194,6 +194,17 @@ class ResolveTaskTest(unittest.TestCase):
         self.assertEqual(text, "spec body")
         self.assertIn("spec", source)
 
+    def test_unreadable_auto_matched_spec_declines_cleanly(self):
+        import os
+        spec = self.dir / "2026-01-01-topic-design.md"
+        spec.write_text("body")
+        os.chmod(spec, 0o000)
+        try:
+            text, source = resolve_task(None, None, self.dir, "topic")
+        finally:
+            os.chmod(spec, 0o644)
+        self.assertIsNone(text)  # declined, did not raise
+
     def test_returns_none_when_nothing_matches(self):
         text, source = resolve_task(None, None, self.dir, "unrelated")
         self.assertIsNone(text)

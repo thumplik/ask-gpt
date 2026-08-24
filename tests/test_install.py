@@ -83,6 +83,18 @@ class InstallTest(unittest.TestCase):
             (self.claude / "skills" / "second-opinion" / "SKILL.md").is_file()
         )
 
+    def test_preflight_leaves_no_partial_install_on_conflict(self):
+        # A blocking non-symlink at the LAST destination must abort before any
+        # earlier link is created.
+        (self.claude / "skills").mkdir(parents=True, exist_ok=True)
+        victim = self.claude / "skills" / "second-opinion"
+        victim.mkdir()
+        (victim / "keep.md").write_text("mine")
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.claude / "ask-gpt").exists(),
+                         "an earlier link was created despite a later conflict")
+
     def test_reports_the_codex_binary_and_auth(self):
         result = self.install()
         self.assertIn("codex:", result.stdout)

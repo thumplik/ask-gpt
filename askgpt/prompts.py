@@ -85,10 +85,13 @@ def resolve_task(explicit_text, task_file, spec_dir, branch):
         for candidate in _branch_candidates(branch):
             matches = sorted(p for p in spec_dir.glob("*.md") if candidate in p.name)
             if len(matches) == 1:
-                return (
-                    matches[0].read_text(encoding="utf-8"),
-                    "spec " + matches[0].name,
-                )
+                try:
+                    body = matches[0].read_text(encoding="utf-8")
+                except OSError:
+                    # An unreadable auto-matched spec should decline the source,
+                    # not crash with a raw traceback.
+                    break
+                return body, "spec " + matches[0].name
 
     return None, "none"
 

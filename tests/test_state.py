@@ -134,6 +134,14 @@ class ArchiveResponseTest(unittest.TestCase):
         sidecars = list(directory.glob("*.payload.md"))
         self.assertEqual(len(sidecars), len(responses))
 
+    def test_same_response_different_payload_does_not_overwrite(self):
+        # Folding the payload into the archive identity keeps two runs with
+        # identical response text but different payloads as separate records.
+        a, _, _ = archive_response(self.dir, "s", "t", "SAME", payload="payload one")
+        b, _, _ = archive_response(self.dir, "s", "t", "SAME", payload="payload two")
+        self.assertNotEqual(a, b)
+        self.assertTrue(a.is_file() and b.is_file())
+
     def test_payload_snapshot_is_stored_alongside(self):
         # Auditability: once the ledger changes, the snapshot is the only
         # record of which accepted-risks block influenced a given review.

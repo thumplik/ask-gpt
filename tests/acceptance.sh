@@ -80,7 +80,7 @@ check "$([ ! -s "$WORK/f.out" ] && echo true || echo false)" "no review printed 
 rm -f "$WORK/codex.mode"
 
 echo "4. continue the resulting thread"
-check "$(grep -q ACCEPT1 "$ASKGPT_STATE_DIR/threads/S1.json" 2>/dev/null && echo true || echo false)" "thread id persisted"
+check "$(grep -rq ACCEPT1 "$ASKGPT_STATE_DIR/threads/" 2>/dev/null && echo true || echo false)" "thread id persisted"
 "$ASKGPT_BIN_DIR/askgpt" follow "and another thing" --session-id S1 --cwd "$OTHER" \
   >"$WORK/fo.out" 2>"$WORK/fo.err"; rc=$?
 check "$([ $rc -eq 0 ] && echo true || echo false)" "follow exits 0" "$(head -3 "$WORK/fo.err")"

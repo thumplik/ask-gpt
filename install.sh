@@ -23,6 +23,24 @@ link() {
   echo "  linked $dest -> $(readlink "$dest")"
 }
 
+# Preflight: refuse if ANY destination is an occupied non-symlink, before we
+# change a single link. A partial install that stopped at the fourth target
+# used to leave the first three already swapped.
+preflight_dest() {
+  local dest="$1"
+  if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    echo "refusing to replace existing non-symlink: $dest" >&2
+    echo "move or delete it, then re-run." >&2
+    exit 1
+  fi
+}
+for d in "$CLAUDE_DIR/ask-gpt" "$CLAUDE_DIR/commands/gptreview.md" \
+         "$CLAUDE_DIR/commands/askgpt.md" "$CLAUDE_DIR/commands/gptfollow.md" \
+         "$CLAUDE_DIR/commands/gptusage.md" "$CLAUDE_DIR/skills/second-opinion" \
+         "${ASKGPT_BIN_DIR:-$HOME/.local/bin}/askgpt"; do
+  preflight_dest "$d"
+done
+
 link "$REPO"                          "$CLAUDE_DIR/ask-gpt"
 link "$REPO/commands/gptreview.md"    "$CLAUDE_DIR/commands/gptreview.md"
 link "$REPO/commands/askgpt.md"       "$CLAUDE_DIR/commands/askgpt.md"

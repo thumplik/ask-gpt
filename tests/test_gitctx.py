@@ -112,6 +112,16 @@ class GitTargetTest(unittest.TestCase):
         target = resolve_target(self.repo)
         self.assertEqual(target.kind, "uncommitted")
 
+    def test_commit_files_with_newline_are_not_split(self):
+        weird = "evil\nname.txt"
+        (self.repo / weird).write_text("x\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "weird")
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo,
+                             capture_output=True, text=True).stdout.strip()
+        target = resolve_target(self.repo, commit=sha)
+        self.assertIn(weird, target.files)
+
     def test_bad_commit_reports_git_failure_not_missing_repo(self):
         # NotAGitRepo here would tell the user to fix the wrong thing.
         with self.assertRaises(GitCommandFailed):

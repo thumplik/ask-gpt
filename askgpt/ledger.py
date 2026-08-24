@@ -91,11 +91,15 @@ def load_accepted(state_dir, repo_root):
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except ValueError:
+    except (ValueError, OSError):
         return []
     entries = data.get("accepted") if isinstance(data, dict) else None
     if not isinstance(entries, list):
         return []
+    # Keep only well-formed rows. A hand-edited or truncated ledger can hold
+    # null or a bare string; downstream code does entry.get(...) and would
+    # crash with a traceback instead of a clean result.
+    entries = [e for e in entries if isinstance(e, dict)]
     # Ledgers written before entries carried keys have key=None on every row.
     # Removing "the entry whose key is None" would then delete all of them, so
     # backfill from the description on load. Purely in memory; the file is
