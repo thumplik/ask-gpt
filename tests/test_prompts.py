@@ -65,12 +65,35 @@ class BuildReviewPayloadTest(unittest.TestCase):
         out = build_review_payload("P", "t", TARGET)
         self.assertNotIn("## assistant", out)
 
+    def test_task_block_is_delimited_and_encloses_the_task(self):
+        # Only the absent-task case checked for "<TASK>" before, so an
+        # implementation with no delimiters at all passed. Without them GPT
+        # has no boundary between our instructions and text that arrived
+        # from a user-supplied spec file.
+        out = build_review_payload("P", "Add retries", TARGET)
+        self.assertIn("<TASK>", out)
+        self.assertIn("</TASK>", out)
+        self.assertLess(out.index("<TASK>"), out.index("Add retries"))
+        self.assertLess(out.index("Add retries"), out.index("</TASK>"))
+
+    def test_file_count_matches_the_listed_files(self):
+        # A hardcoded count passed before; a wrong count misleads the reviewer
+        # about how much it is meant to be looking at.
+        out = build_review_payload("P", "t", TARGET)
+        self.assertIn("Changed files (2):", out)
+
 
 class BuildAskPayloadTest(unittest.TestCase):
     def test_includes_question_and_transcript(self):
         out = build_ask_payload("Is this sound?", "## user\nhello")
         self.assertIn("Is this sound?", out)
         self.assertIn("hello", out)
+
+    def test_question_precedes_the_conversation(self):
+        # Two independent assertIn checks pass with the order reversed. The
+        # question must frame what to look for, not trail it.
+        out = build_ask_payload("Is this sound?", "## user\nhello")
+        self.assertLess(out.index("Is this sound?"), out.index("hello"))
 
 
 class ResolveTaskTest(unittest.TestCase):
@@ -112,6 +135,15 @@ class ResolveTaskTest(unittest.TestCase):
         (self.dir / "b-retry-logic.md").write_text("two")
         text, source = resolve_task(None, None, self.dir, "retry-logic")
         self.assertIsNone(text)
+
+    def test_task_file_source_label_names_the_file(self):
+        # The label is the audit trail for where the reviewer's brief came
+        # from; returning "--task" for a file-sourced task went undetected.
+        path = self.dir / "task.md"
+        path.write_text("from file")
+        _, source = resolve_task(None, path, self.dir, "feature")
+        self.assertIn("--task-file", source)
+        self.assertIn("task.md", source)
 
 
 if __name__ == "__main__":
