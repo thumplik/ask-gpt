@@ -20,11 +20,14 @@ Two design constraints, both deliberate:
   around them shifts.
 """
 
+import fcntl
 import hashlib
 import json
 import os
 import tempfile
 import time
+import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -51,12 +54,35 @@ def entry_key(description):
     review, so mutating by it deletes an unrelated entry the next time round.
     The normalised description is what actually identifies the finding.
     """
-    normalised = " ".join(str(description or "").lower().split())
+    # NFC first: visually identical text in different unicode forms (composed
+    # vs decomposed accents) must not produce two entries for one finding.
+    text = unicodedata.normalize("NFC", str(description or ""))
+    normalised = " ".join(text.lower().split())
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()[:16]
 
 
 def _ledger_file(state_dir, repo_root):
     return Path(state_dir) / "projects" / project_slug(repo_root) / "ledger.json"
+
+
+@contextmanager
+def _locked(path):
+    """Serialise read-modify-write across processes.
+
+    accept/unaccept read the list, change it, and write it back. Two windows
+    doing that concurrently both read the old list and one write is lost -- 30
+    concurrent accepts collapsed to 5. An exclusive lock on a sidecar file
+    makes the whole cycle atomic between processes.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = path.with_suffix(".lock")
+    handle = os.open(str(lock), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        os.close(handle)
 
 
 def load_accepted(state_dir, repo_root):
@@ -106,19 +132,20 @@ def accept(state_dir, repo_root, finding_id, reason, description=""):
         raise ValueError("an accepted finding needs a description to identify it")
     path = _ledger_file(state_dir, repo_root)
     key = entry_key(description)
-    # Replace by KEY, never by ordinal: re-accepting a later F2 must not
-    # silently delete an unrelated finding accepted as F2 weeks ago.
-    entries = [e for e in load_accepted(state_dir, repo_root) if e.get("key") != key]
-    entries.append(
-        {
-            "key": key,
-            "id": finding_id,
-            "reason": reason,
-            "description": description,
-            "accepted_at": time.strftime("%Y-%m-%d"),
-        }
-    )
-    _write(path, entries)
+    with _locked(path):
+        # Replace by KEY, never by ordinal: re-accepting a later F2 must not
+        # silently delete an unrelated finding accepted as F2 weeks ago.
+        entries = [e for e in load_accepted(state_dir, repo_root) if e.get("key") != key]
+        entries.append(
+            {
+                "key": key,
+                "id": finding_id,
+                "reason": reason,
+                "description": description,
+                "accepted_at": time.strftime("%Y-%m-%d"),
+            }
+        )
+        _write(path, entries)
     return path
 
 
@@ -147,15 +174,32 @@ def unaccept(state_dir, repo_root, token):
     when a token matches several -- deleting the wrong accepted risk silently
     is the failure this whole identity model exists to prevent.
     """
-    matches = resolve(state_dir, repo_root, token)
-    if not matches:
-        return False
-    if len(matches) > 1:
-        raise Ambiguous(matches)
-    entries = load_accepted(state_dir, repo_root)
-    kept = [e for e in entries if e.get("key") != matches[0].get("key")]
-    _write(_ledger_file(state_dir, repo_root), kept)
+    path = _ledger_file(state_dir, repo_root)
+    with _locked(path):
+        matches = resolve(state_dir, repo_root, token)
+        if not matches:
+            return False
+        if len(matches) > 1:
+            raise Ambiguous(matches)
+        entries = load_accepted(state_dir, repo_root)
+        kept = [e for e in entries if e.get("key") != matches[0].get("key")]
+        _write(path, kept)
     return True
+
+
+def _safe_field(value, limit=500):
+    """Neutralise anything that could break out of the ACCEPTED-RISKS block.
+
+    Fields are user-supplied, and a description can be auto-resolved from a
+    review whose text was influenced by repository content. Either route could
+    carry a literal `</ACCEPTED-RISKS>` and a forged instruction; collapsing
+    newlines and defusing the delimiter tokens keeps the block one structural
+    unit that the persona treats as data.
+    """
+    text = " ".join(str(value or "").split())
+    text = text.replace("<ACCEPTED-RISKS>", "(ACCEPTED-RISKS)")
+    text = text.replace("</ACCEPTED-RISKS>", "(/ACCEPTED-RISKS)")
+    return text[:limit]
 
 
 def format_accepted_block(entries):
@@ -175,13 +219,13 @@ def format_accepted_block(entries):
     for entry in entries:
         line = (
             "- ["
-            + str(entry.get("id"))
+            + _safe_field(entry.get("id"), 32)
             + "] accepted "
-            + str(entry.get("accepted_at", "?"))
+            + _safe_field(entry.get("accepted_at", "?"), 16)
             + ": "
-            + str(entry.get("reason", ""))
+            + _safe_field(entry.get("reason", ""))
         )
-        description = str(entry.get("description", "")).strip()
+        description = _safe_field(entry.get("description", ""))
         if description:
             line += "\n  The accepted finding was: " + description
         lines.append(line)
