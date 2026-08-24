@@ -408,6 +408,47 @@ class LedgerCliTest(CliTestCase):
         self.assertIn("race on the cache file", result.stdout)
         self.assertIn("mean nothing", result.stdout)  # IDs disclaimed as ordinals
 
+    def test_accept_does_not_borrow_another_projects_review(self):
+        # Response archives are global. Resolving unscoped lets a review of
+        # repo B describe an accept in repo A -- a disposition recorded
+        # against a finding that was never reported here.
+        repo = self.make_repo(dirty=False)
+        archives = self.root / "state" / "responses"
+        archives.mkdir(parents=True, exist_ok=True)
+        (archives / "othersession-thr-aaa.md").write_text(
+            "F2: services/billing.py:88 unbounded retry loop\n\nSeverity: High"
+        )
+        result = run_cli("accept", "F2", "reason", "--session-id", "mine",
+                         "--cwd", str(repo), env=self.env())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("billing.py", result.stdout)
+
+    def test_accept_resolves_from_this_sessions_review(self):
+        repo = self.make_repo(dirty=False)
+        archives = self.root / "state" / "responses"
+        archives.mkdir(parents=True, exist_ok=True)
+        (archives / "mine-thr-bbb.md").write_text(
+            "F2: app/cache.py:12 race on the cache file\n\nSeverity: Medium"
+        )
+        result = run_cli("accept", "F2", "tolerated", "--session-id", "mine",
+                         "--cwd", str(repo), env=self.env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cache.py", result.stdout)
+
+    def test_accept_does_not_confuse_F1_with_F10(self):
+        repo = self.make_repo(dirty=False)
+        archives = self.root / "state" / "responses"
+        archives.mkdir(parents=True, exist_ok=True)
+        (archives / "mine-thr-ccc.md").write_text(
+            "F10: deep/module.py:5 unsafe deserialisation\n\n"
+            "F1: shallow.py:1 missing null check"
+        )
+        result = run_cli("accept", "F1", "tolerated", "--session-id", "mine",
+                         "--cwd", str(repo), env=self.env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("shallow.py", result.stdout)
+        self.assertNotIn("deserialisation", result.stdout)
+
     def test_unaccept_missing_id_fails(self):
         repo = self.make_repo(dirty=False)
         result = run_cli("unaccept", "F9", "--cwd", str(repo), env=self.env())
