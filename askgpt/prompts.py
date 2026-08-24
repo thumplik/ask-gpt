@@ -4,6 +4,32 @@ from pathlib import Path
 
 from .errors import AskGptError
 
+# Every structural delimiter used in any payload. Untrusted values -- task text
+# from a repo spec file, repo-controlled filenames, transcript content -- are
+# defused against all of them, so no field can forge a block boundary and smuggle
+# a line that reads as an instruction. The persona also declares everything after
+# its divider to be data; this makes that guarantee structural rather than
+# merely asserted.
+_STRUCTURAL_TAGS = (
+    "<TASK>", "</TASK>", "<SCOPE>", "</SCOPE>",
+    "<CONVERSATION>", "</CONVERSATION>", "<QUESTION>", "</QUESTION>",
+    "<ACCEPTED-RISKS>", "</ACCEPTED-RISKS>",
+)
+
+
+def _defuse(text):
+    """Neutralise structural delimiters in an untrusted value."""
+    out = str(text)
+    for tag in _STRUCTURAL_TAGS:
+        out = out.replace(tag, tag.replace("<", "(").replace(">", ")"))
+    return out
+
+
+def _defuse_line(text):
+    """Defuse delimiters AND collapse newlines, for values that must stay on
+    one line (filenames in a list, where a newline itself forges structure)."""
+    return _defuse(" ".join(str(text).split()))
+
 NO_TASK_NOTICE = (
     "No authoritative task statement is available for this change.\n"
     "Do NOT guess what was intended. Review the code on its own terms:\n"
@@ -76,17 +102,17 @@ def build_review_payload(persona, task, target, accepted_block=""):
         sections += [accepted_block, ""]
 
     if task:
-        sections += ["<TASK>", task.strip(), "</TASK>", ""]
+        sections += ["<TASK>", _defuse(task.strip()), "</TASK>", ""]
     else:
         sections += [NO_TASK_NOTICE, ""]
 
     sections += [
         "<SCOPE>",
-        target.instruction,
+        _defuse(target.instruction),
         "",
         "Changed files (" + str(len(target.files)) + "):",
     ]
-    sections += ["  " + f for f in target.files]
+    sections += ["  " + _defuse_line(f) for f in target.files]
     sections += ["</SCOPE>"]
     return "\n".join(sections)
 
@@ -97,13 +123,13 @@ def build_ask_payload(question, transcript):
             "A Claude Code session is asking for your independent opinion.",
             "",
             "<QUESTION>",
-            question.strip(),
+            _defuse(question.strip()),
             "</QUESTION>",
             "",
             "<CONVERSATION>",
             "Dialogue is verbatim. Tool payloads are omitted, except failed ones.",
             "",
-            transcript,
+            _defuse(transcript),
             "</CONVERSATION>",
             "",
             "You may read the repository to check anything asserted above.",
