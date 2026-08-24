@@ -339,7 +339,13 @@ askgpt risks              # list this project's accepted risks
 askgpt unaccept F2        # changed your mind
 ```
 
-**The description is the identity, not the ID.** F-numbers are ordinals within one
+**The description is the identity, not the ID.** Entries are stored and matched by a
+hash of their description; the F-number is only shorthand for typing. So accepting a new
+`F2` never overwrites an unrelated `F2` from a previous review, and `unaccept F2` refuses
+with a list when the ordinal is ambiguous rather than deleting the wrong risk. You can
+also unaccept by description substring or by the key `askgpt risks` prints.
+
+ F-numbers are ordinals within one
 review — next week's F2 is a different finding — so an entry is matched by what it
 *says*, and `accept` refuses an entry it cannot describe. Omit `--description` and it
 tries to pull the finding's own text from the most recent archived review; if it cannot,

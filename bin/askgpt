@@ -288,7 +288,11 @@ def cmd_accept(args):
             file=sys.stderr,
         )
         return 1
-    ledger.accept(state_dir(), repo, args.finding_id, args.reason, description)
+    try:
+        ledger.accept(state_dir(), repo, args.finding_id, args.reason, description)
+    except ValueError as error:
+        print("askgpt: " + str(error), file=sys.stderr)
+        return 1
     print("Accepted " + args.finding_id + ": " + description[:80])
     return 0
 
@@ -298,8 +302,13 @@ def _finding_from_archive(finding_id):
     directory = state_dir() / "responses"
     if not directory.is_dir():
         return ""
-    for path in sorted(directory.glob("*.md"), key=lambda p: p.stat().st_mtime,
-                       reverse=True):
+    # Responses only. Payload sidecars share the .md suffix, so globbing
+    # blindly can resolve a finding's text out of a PAYLOAD -- which contains
+    # the previous ledger block, not the review that raised the finding.
+    candidates = [
+        p for p in directory.glob("*.md") if not p.name.endswith(".payload.md")
+    ]
+    for path in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
@@ -313,10 +322,23 @@ def _finding_from_archive(finding_id):
 
 def cmd_unaccept(args):
     repo = gitctx.repo_root(Path(args.cwd).resolve())
-    if ledger.unaccept(state_dir(), repo, args.finding_id):
+    try:
+        removed = ledger.unaccept(state_dir(), repo, args.finding_id)
+    except ledger.Ambiguous as clash:
+        print(
+            "askgpt: '" + args.finding_id + "' matches "
+            + str(len(clash.matches)) + " accepted risks. Ordinals repeat across\n"
+            "reviews, so name the one you mean by description substring or key:",
+            file=sys.stderr,
+        )
+        for entry in clash.matches:
+            print("  " + entry["key"] + "  " + entry.get("description", "")[:70],
+                  file=sys.stderr)
+        return 1
+    if removed:
         print("Removed " + args.finding_id)
         return 0
-    print("askgpt: no accepted risk named " + args.finding_id, file=sys.stderr)
+    print("askgpt: no accepted risk matching " + args.finding_id, file=sys.stderr)
     return 1
 
 
@@ -327,7 +349,10 @@ def cmd_risks(args):
         print("No accepted risks recorded for " + str(repo))
         return 0
     for entry in entries:
-        print("[" + entry["id"] + "] " + entry.get("accepted_at", "?") + "  " + entry.get("reason", ""))
+        print("[" + entry.get("id", "?") + "] " + entry.get("accepted_at", "?")
+              + "  key:" + entry.get("key", "?"))
+        print("     " + entry.get("description", "")[:100])
+        print("     reason: " + entry.get("reason", ""))
     return 0
 
 

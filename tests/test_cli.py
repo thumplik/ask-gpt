@@ -502,7 +502,23 @@ class ProjectThreadTest(CliTestCase):
         project_key = "project-" + lg.project_slug(repo)
         (threads / (project_key + ".json")).write_text('{"thread_id": "OLD-CHAT"}')
 
-        codex = self.working_codex(thread_id="REV-T")
+        # A recorder, so the assertion inspects the actual resume argument
+        # rather than inferring routing from thread files.
+        argv_log = self.root / "follow-argv.txt"
+        recorder = self.root / "codex-rec"
+        recorder.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, pathlib\n"
+            "argv = sys.argv\n"
+            "if 'login' in argv:\n"
+            "    sys.stderr.write('Logged in using ChatGPT\\n')\n"
+            "    sys.exit(0)\n"
+            "pathlib.Path('" + str(argv_log) + "').write_text(' '.join(argv))\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('BODY')\n"
+            "print('{\"type\":\"thread.started\",\"thread_id\":\"REV-T\"}')\n"
+        )
+        recorder.chmod(0o755)
+        codex = str(recorder)
         review = run_cli("review", "--uncommitted", "--task", "T",
                          "--session-id", "sX", "--cwd", str(repo),
                          env=self.env(CODEX_BIN=codex))
@@ -511,9 +527,11 @@ class ProjectThreadTest(CliTestCase):
         follow = run_cli("follow", "F1 is wrong", "--session-id", "sX",
                          "--cwd", str(repo), env=self.env(CODEX_BIN=codex))
         self.assertEqual(follow.returncode, 0, follow.stderr)
-        argv = (self.root / "argv.txt")
-        # the recorder stub is not used here; assert via thread files instead:
-        # review thread resumed, project chat untouched
+        # The load-bearing assertion: it resumed the REVIEW thread, not the
+        # pre-existing advisory chat.
+        recorded = argv_log.read_text()
+        self.assertIn("resume REV-T", recorded)
+        self.assertNotIn("OLD-CHAT", recorded)
         self.assertIn("REV-T", (threads / "sX.json").read_text())
         self.assertIn("OLD-CHAT", (threads / (project_key + ".json")).read_text())
 
