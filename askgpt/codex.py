@@ -75,7 +75,13 @@ def check_auth(codex_bin: str, timeout: int = 30) -> None:
             "Could not execute " + str(codex_bin) + ": " + str(error)
         ) from None
 
-    if result.returncode != 0 or "Logged in" not in result.stdout:
+    # The real CLI prints this to STDERR with an empty stdout -- verified by
+    # running `codex login status 2>/dev/null` (silent) vs `2>&1 1>/dev/null`
+    # ("Logged in using ChatGPT"). Checking stdout alone reports every logged-in
+    # user as logged out. The original verification used `2>&1`, which merges
+    # the streams and hid this.
+    reported = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0 or "Logged in" not in reported:
         # Do not assert "not logged in": a corrupt config, a missing library, or
         # a network failure lands here too, and telling the user to run
         # `codex login` would point them at the wrong fix. Show what Codex said.

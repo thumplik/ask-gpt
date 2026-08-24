@@ -26,7 +26,7 @@ exists so a future reader can tell which claims were tested.
 |---|---|---|
 | Codex CLI present | `/Applications/ChatGPT.app/Contents/Resources/codex` | `--version` → `codex-cli 0.148.0-alpha.9` |
 | On `PATH`? | **No** | `command -v codex` fails; full path works |
-| Auth | ChatGPT account | `codex login status` → "Logged in using ChatGPT" |
+| Auth | ChatGPT account | `codex login status` → "Logged in using ChatGPT" **on stderr**; stdout is empty |
 | Runs under Claude Code's Bash sandbox | Yes | `--version` succeeds sandboxed |
 | Working model slug | **`gpt-5.6-sol`** | live call returned a correct answer |
 | Also valid | `gpt-5.6-terra` (lower tier) | live call |

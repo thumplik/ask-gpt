@@ -78,6 +78,12 @@ class CheckAuthTest(unittest.TestCase):
     def _stub(self, body: str) -> str:
         return str(_write_script(self.dir / "codex-stub", body))
 
+    def test_accepts_logged_in_reported_on_stderr(self):
+        # This is what the real Codex CLI does: the status line goes to stderr
+        # and stdout is empty. A stub echoing to stdout hid this for the whole
+        # build, and check_auth rejected every genuinely logged-in user.
+        check_auth(self._stub('echo "Logged in using ChatGPT" >&2'))
+
     def test_accepts_logged_in(self):
         check_auth(self._stub('echo "Logged in using ChatGPT"'))
 
