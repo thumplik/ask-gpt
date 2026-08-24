@@ -34,7 +34,7 @@ class InstallTest(unittest.TestCase):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
         for rel in ("ask-gpt", "commands/gptreview.md", "commands/askgpt.md",
-                    "skills/ask-gpt"):
+                    "commands/gptfollow.md", "skills/ask-gpt"):
             self.assertTrue((self.claude / rel).is_symlink(), rel)
 
     def test_cli_is_executable_afterwards(self):
@@ -59,7 +59,7 @@ class InstallTest(unittest.TestCase):
         # Existence is not correctness: swapping the two command links passes
         # a .is_symlink() check while giving you the wrong prompt entirely.
         self.install()
-        for name in ("gptreview.md", "askgpt.md"):
+        for name in ("gptreview.md", "askgpt.md", "gptfollow.md"):
             self.assertEqual(
                 os.path.realpath(self.claude / "commands" / name),
                 str((REPO / "commands" / name).resolve()),

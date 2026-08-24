@@ -26,6 +26,7 @@ link() {
 link "$REPO"                          "$CLAUDE_DIR/ask-gpt"
 link "$REPO/commands/gptreview.md"    "$CLAUDE_DIR/commands/gptreview.md"
 link "$REPO/commands/askgpt.md"       "$CLAUDE_DIR/commands/askgpt.md"
+link "$REPO/commands/gptfollow.md"    "$CLAUDE_DIR/commands/gptfollow.md"
 link "$REPO"                          "$CLAUDE_DIR/skills/ask-gpt"
 
 chmod +x "$REPO/bin/askgpt"

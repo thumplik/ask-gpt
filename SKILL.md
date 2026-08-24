@@ -10,6 +10,7 @@ Sends work to GPT-5.6-sol through the Codex CLI and relays the response.
 - `/gptreview` — adversarial review of the current change. GPT sees the task and the
   code, never Claude's account of what it did. That independence is the point.
 - `/askgpt <question>` — a general question with the session dialogue attached.
+- `/gptfollow <pushback>` — continue the same thread to argue with a finding.
 
 ## Reading the response
 
