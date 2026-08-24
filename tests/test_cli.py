@@ -375,6 +375,87 @@ class PlumbingTest(CliTestCase):
         self.assertIn("NOT the model this tool pins", result.stderr)
 
 
+class LedgerCliTest(CliTestCase):
+    def test_accept_risks_roundtrip(self):
+        repo = self.make_repo(dirty=False)
+        result = run_cli("accept", "F2", "trusted input only", "--cwd", str(repo),
+                         env=self.env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        listing = run_cli("risks", "--cwd", str(repo), env=self.env())
+        self.assertIn("F2", listing.stdout)
+        self.assertIn("trusted input only", listing.stdout)
+
+    def test_unaccept_missing_id_fails(self):
+        repo = self.make_repo(dirty=False)
+        result = run_cli("unaccept", "F9", "--cwd", str(repo), env=self.env())
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_review_payload_carries_accepted_risks(self):
+        repo = self.make_repo()
+        run_cli("accept", "F1", "known and tolerated", "--cwd", str(repo),
+                env=self.env())
+        result = run_cli(
+            "review", "--uncommitted", "--dry-run", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("<ACCEPTED-RISKS>", result.stdout)
+        self.assertIn("known and tolerated", result.stdout)
+        self.assertIn("materially changed", result.stdout)
+
+    def test_review_without_ledger_has_no_block(self):
+        repo = self.make_repo()
+        result = run_cli(
+            "review", "--uncommitted", "--dry-run", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertNotIn("<ACCEPTED-RISKS>", result.stdout)
+
+
+class ProjectThreadTest(CliTestCase):
+    def make_transcript_for(self, repo, session):
+        config = self.root / "claude"
+        slug = str(repo.resolve()).replace("/", "-")
+        project = config / "projects" / slug
+        project.mkdir(parents=True, exist_ok=True)
+        (project / (session + ".jsonl")).write_text(
+            json.dumps({"type": "user",
+                        "message": {"role": "user", "content": "hi"}}) + "\n"
+        )
+        return config
+
+    def test_ask_threads_key_by_project_not_session(self):
+        # Two different Claude sessions asking about ONE repo continue one
+        # conversation -- the point of the feature.
+        repo = self.make_repo()
+        config = self.make_transcript_for(repo, "aaaa")
+        self.make_transcript_for(repo, "bbbb")
+        codex = self.working_codex(thread_id="PROJ-T")
+        first = run_cli("ask", "q1", "--session-id", "aaaa", "--cwd", str(repo),
+                        env=self.env(CLAUDE_CONFIG_DIR=str(config), CODEX_BIN=codex))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        threads = list((self.root / "state" / "threads").glob("project-*.json"))
+        self.assertEqual(len(threads), 1)
+        self.assertIn("PROJ-T", threads[0].read_text())
+
+        second = run_cli("follow", "q2", "--session-id", "bbbb", "--cwd", str(repo),
+                         env=self.env(CLAUDE_CONFIG_DIR=str(config), CODEX_BIN=codex))
+        self.assertEqual(second.returncode, 0, second.stderr)
+
+    def test_review_threads_stay_keyed_by_session(self):
+        # The load-bearing negative: a reviewer must not inherit its own past
+        # framing across runs, so review must NEVER write a project thread.
+        repo = self.make_repo()
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T", "--session-id", "s1",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.working_codex()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        threads = self.root / "state" / "threads"
+        self.assertTrue((threads / "s1.json").is_file())
+        self.assertEqual(list(threads.glob("project-*.json")), [])
+
+
 class FollowTest(CliTestCase):
     def test_without_a_prior_thread_errors_clearly(self):
         repo = self.make_repo()

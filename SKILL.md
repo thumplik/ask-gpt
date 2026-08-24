@@ -35,7 +35,9 @@ forever, because an adversarial reviewer will always find something.
 - **Fix** Blocker and High findings that come with a concrete failure scenario.
 - **Verify first** anything you doubt. A finding you cannot reproduce is not yet real.
 - **Log, do not fix** Medium and Low findings without a demonstrated failure, and any
-  finding that proposes new capability rather than repairing a defect.
+  finding that proposes new capability rather than repairing a defect. When the user
+  decides a finding is acceptable, record it: `askgpt accept <ID> "<their reason>"` --
+  future reviews then skip re-reporting it unless the code has materially changed.
 - **Stop** when no unfixed Blocker or High remains. Do not run another round to see what
   else turns up — that is not a release criterion, it is an open-ended search.
 

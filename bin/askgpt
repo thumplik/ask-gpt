@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from askgpt import (
-    codex, gitctx, preflight, prompts, runner, secrets, state, transcript, usage,
+    codex, gitctx, ledger, preflight, prompts, runner, secrets, state, transcript, usage,
 )
 from askgpt.artifacts import Artifacts
 from askgpt.errors import AskGptError
@@ -62,7 +62,19 @@ def build_parser():
     ask.add_argument("question")
     add_common(ask)
 
-    sub.add_parser("usage", help="Show remaining ChatGPT plan quota (costs nothing)")
+    sub.add_parser("usage", help="Best-effort snapshot of plan usage so far (costs nothing)")
+
+    acc = sub.add_parser("accept", help="Record a review finding as an accepted risk")
+    acc.add_argument("finding_id", metavar="ID", help="The finding's ID, e.g. F2")
+    acc.add_argument("reason", help="Why this risk is acceptable")
+    acc.add_argument("--cwd", default=".")
+
+    unacc = sub.add_parser("unaccept", help="Remove an accepted risk from the ledger")
+    unacc.add_argument("finding_id", metavar="ID")
+    unacc.add_argument("--cwd", default=".")
+
+    risks = sub.add_parser("risks", help="List this project's accepted risks")
+    risks.add_argument("--cwd", default=".")
 
     follow = sub.add_parser("follow", help="Continue the last GPT thread")
     follow.add_argument("text")
@@ -155,7 +167,13 @@ def dispatch(args, payload, resume_thread=None):
                 file=sys.stderr,
             )
 
-        thread_key = args.session_id or getattr(args, "_fallback_session", None)
+        # Ask/follow threads are project conversations, so they key by repo:
+        # tomorrow's session continues today's discussion of this codebase.
+        # Review stays keyed by session -- an independent reviewer must not
+        # inherit its own past framing across runs.
+        thread_key = getattr(args, "_thread_key", None) or args.session_id or getattr(
+            args, "_fallback_session", None
+        )
         if result.thread_id and thread_key:
             state.save_thread(state_dir(), thread_key, result.thread_id)
 
@@ -197,7 +215,18 @@ def cmd_review(args):
         "task source: " + source,
         file=sys.stderr,
     )
-    payload = prompts.build_review_payload(prompts.load_persona(REPO_ROOT), task, target)
+    accepted = ledger.load_accepted(state_dir(), gitctx.repo_root(repo))
+    if accepted:
+        print(
+        "Including " + str(len(accepted)) + " accepted risk(s); `askgpt risks` lists them.",
+            file=sys.stderr,
+        )
+    payload = prompts.build_review_payload(
+        prompts.load_persona(REPO_ROOT),
+        task,
+        target,
+        accepted_block=ledger.format_accepted_block(accepted),
+    )
     return dispatch(args, payload)
 
 
@@ -220,8 +249,36 @@ def _packed_transcript(args):
 
 
 def cmd_ask(args):
+    args._thread_key = "project-" + ledger.project_slug(Path(args.cwd).resolve())
     payload = prompts.build_ask_payload(args.question, _packed_transcript(args))
     return dispatch(args, payload)
+
+
+def cmd_accept(args):
+    repo = gitctx.repo_root(Path(args.cwd).resolve())
+    ledger.accept(state_dir(), repo, args.finding_id, args.reason)
+    print("Accepted " + args.finding_id + " for " + str(repo))
+    return 0
+
+
+def cmd_unaccept(args):
+    repo = gitctx.repo_root(Path(args.cwd).resolve())
+    if ledger.unaccept(state_dir(), repo, args.finding_id):
+        print("Removed " + args.finding_id)
+        return 0
+    print("askgpt: no accepted risk named " + args.finding_id, file=sys.stderr)
+    return 1
+
+
+def cmd_risks(args):
+    repo = gitctx.repo_root(Path(args.cwd).resolve())
+    entries = ledger.load_accepted(state_dir(), repo)
+    if not entries:
+        print("No accepted risks recorded for " + str(repo))
+        return 0
+    for entry in entries:
+        print("[" + entry["id"] + "] " + entry.get("accepted_at", "?") + "  " + entry.get("reason", ""))
+    return 0
 
 
 def cmd_usage(args):
@@ -230,7 +287,13 @@ def cmd_usage(args):
 
 
 def cmd_follow(args):
-    thread_id = state.load_thread(state_dir(), args.session_id or "")
+    # Prefer this project's conversation; fall back to session-keyed threads
+    # so a follow-up to a review in THIS session still works.
+    project_key = "project-" + ledger.project_slug(Path(args.cwd).resolve())
+    args._thread_key = project_key
+    thread_id = state.load_thread(state_dir(), project_key) or state.load_thread(
+        state_dir(), args.session_id or ""
+    )
     if not thread_id and not args.session_id:
         # Mirror the ask-path fallback so an unkeyed ask can still be followed.
         try:
@@ -256,6 +319,9 @@ def main(argv=None):
         "ask": cmd_ask,
         "follow": cmd_follow,
         "usage": cmd_usage,
+        "accept": cmd_accept,
+        "unaccept": cmd_unaccept,
+        "risks": cmd_risks,
     }[args.command]
     try:
         return handler(args)

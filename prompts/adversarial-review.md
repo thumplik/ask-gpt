@@ -27,6 +27,8 @@ Report defects only. Do not praise anything. Do not summarise what the code does
 
 For every finding, give:
 
+- A short stable ID: F1, F2, F3 ... in reporting order. The user records
+  dispositions against these IDs, so never renumber within one review.
 - `file:line`
 - Severity: Blocker / High / Medium / Low
 - The concrete failure scenario: specific inputs or state, leading to specific
