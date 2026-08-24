@@ -92,6 +92,37 @@ class LedgerTest(unittest.TestCase):
         self.assertTrue(unaccept(self.dir, self.repo, "race on cache"))
         self.assertEqual(load_accepted(self.dir, self.repo), [])
 
+    def test_unaccept_does_not_wipe_legacy_keyless_entries(self):
+        # Ledgers written before entries had keys have key=None on every row.
+        # Removing by that shared None deletes the whole file.
+        import json
+
+        path = self.dir / "projects"
+        from askgpt.ledger import project_slug
+
+        target = path / project_slug(self.repo) / "ledger.json"
+        target.parent.mkdir(parents=True)
+        target.write_text(json.dumps({"accepted": [
+            {"id": "F1", "reason": "r1", "description": "a.py:1 first"},
+            {"id": "F2", "reason": "r2", "description": "b.py:2 second"},
+            {"id": "F3", "reason": "r3", "description": "c.py:3 third"},
+        ]}))
+        self.assertTrue(unaccept(self.dir, self.repo, "F2"))
+        remaining = [e["id"] for e in load_accepted(self.dir, self.repo)]
+        self.assertEqual(remaining, ["F1", "F3"])
+
+    def test_accept_alongside_legacy_entries_keeps_them(self):
+        import json
+        from askgpt.ledger import project_slug
+
+        target = self.dir / "projects" / project_slug(self.repo) / "ledger.json"
+        target.parent.mkdir(parents=True)
+        target.write_text(json.dumps({"accepted": [
+            {"id": "F1", "reason": "r", "description": "a.py:1 legacy"},
+        ]}))
+        accept(self.dir, self.repo, "F2", "r", "b.py:2 new")
+        self.assertEqual(len(load_accepted(self.dir, self.repo)), 2)
+
     def test_corrupt_ledger_loads_as_empty(self):
         accept(self.dir, self.repo, "R1", "x", "a.py:1 thing")
         files = list(self.dir.rglob("ledger.json"))

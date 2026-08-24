@@ -68,7 +68,18 @@ def load_accepted(state_dir, repo_root):
     except ValueError:
         return []
     entries = data.get("accepted") if isinstance(data, dict) else None
-    return entries if isinstance(entries, list) else []
+    if not isinstance(entries, list):
+        return []
+    # Ledgers written before entries carried keys have key=None on every row.
+    # Removing "the entry whose key is None" would then delete all of them, so
+    # backfill from the description on load. Purely in memory; the file is
+    # rewritten with keys on the next accept or unaccept.
+    for entry in entries:
+        if isinstance(entry, dict) and not entry.get("key"):
+            entry["key"] = entry_key(entry.get("description", "")) if entry.get(
+                "description"
+            ) else "legacy-" + str(entry.get("id", "")) + "-" + str(entry.get("reason", ""))[:16]
+    return entries
 
 
 def _write(path, entries):

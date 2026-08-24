@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,7 @@ def build_parser():
              "ordinals.",
     )
     acc.add_argument("--cwd", default=".")
+    acc.add_argument("--session-id", default=None)
 
     unacc = sub.add_parser("unaccept", help="Remove an accepted risk from the ledger")
     unacc.add_argument("finding_id", metavar="ID")
@@ -279,7 +281,7 @@ def cmd_accept(args):
         # Best effort: pull the finding's own text out of the most recent
         # archived review, so the ledger entry describes what was accepted
         # even when the user only typed the ID.
-        description = _finding_from_archive(args.finding_id)
+        description = _finding_from_archive(args.finding_id, args.session_id)
     if not description:
         print(
             "askgpt: cannot identify " + args.finding_id + ". F-IDs are ordinals "
@@ -297,8 +299,14 @@ def cmd_accept(args):
     return 0
 
 
-def _finding_from_archive(finding_id):
-    """The finding's text from the newest archived review mentioning its ID."""
+def _finding_from_archive(finding_id, session_id=None):
+    """The finding's text from the newest archived review raising that ID.
+
+    Scoped to this session's archives when a session id is known. Response
+    archives are global, so an unscoped search can describe an accept in one
+    repository using a review of a different one -- recording a disposition
+    against a finding that was never reported here.
+    """
     directory = state_dir() / "responses"
     if not directory.is_dir():
         return ""
@@ -308,14 +316,22 @@ def _finding_from_archive(finding_id):
     candidates = [
         p for p in directory.glob("*.md") if not p.name.endswith(".payload.md")
     ]
+    if session_id:
+        scoped = [p for p in candidates if p.name.startswith(str(session_id) + "-")]
+        candidates = scoped or []   # no archive for this session: resolve nothing
     for path in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        marker = finding_id + ":"
+        # Anchored, not substring: bare containment makes "F1" match a
+        # paragraph headed "F10", capturing an unrelated finding's text.
+        pattern = re.compile(
+            r"(?:^|[^A-Za-z0-9])" + re.escape(finding_id) + r"(?![A-Za-z0-9])"
+        )
         for para in text.split("\n\n"):
-            if finding_id in para.split("\n")[0] or marker in para:
+            head = para.split("\n")[0]
+            if pattern.search(head):
                 return " ".join(para.split())[:400]
     return ""
 
