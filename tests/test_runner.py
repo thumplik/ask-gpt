@@ -37,6 +37,15 @@ class BuildArgvTest(unittest.TestCase):
     def test_never_uses_last(self):
         self.assertNotIn("--last", build_argv("/bin/codex", out_path="/tmp/o.md", resume_thread="T1"))
 
+    def test_requests_the_json_event_stream(self):
+        # --json is the ONLY reason thread.started is parseable. Drop it and
+        # every follow-up silently breaks, with no test noticing.
+        self.assertIn("--json", build_argv("/bin/codex", out_path="/tmp/o.md"))
+
+    def test_skip_git_repo_check_can_be_disabled(self):
+        argv = build_argv("/bin/codex", out_path="/tmp/o.md", skip_git_repo_check=False)
+        self.assertNotIn("--skip-git-repo-check", argv)
+
 
 class ParseThreadIdTest(unittest.TestCase):
     def test_finds_thread_started(self):
@@ -127,6 +136,36 @@ class RunTest(unittest.TestCase):
             "sys.exit(1)\n"
         )
         with self.assertRaises(QuotaExhausted):
+            run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+
+    def test_unexecutable_binary_stays_inside_the_error_contract(self):
+        # errors.py states callers catch AskGptError; a stale CODEX_BIN or a
+        # moved binary must not escape as a raw OSError traceback.
+        with self.assertRaises(AskGptError):
+            run(str(self.dir / "no-such-codex"), "payload", cwd=self.dir,
+                out_path=self.dir / "out.md")
+
+    def test_success_result_carries_returncode_and_stderr(self):
+        stub = self._stub(
+            "import sys\n"
+            "argv = sys.argv\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('OK BODY')\n"
+            "sys.stderr.write('a warning\\n')\n"
+        )
+        result = run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("a warning", result.stderr)
+
+    def test_unsupported_model_detected_on_stderr_too(self):
+        # The marker can land on either stream. Checking only one lets a real
+        # rejection through as a generic failure with the wrong guidance.
+        stub = self._stub(
+            "import sys\n"
+            "sys.stderr.write('ERROR: the model is not supported when using "
+            "Codex with a ChatGPT account\\n')\n"
+            "sys.exit(1)\n"
+        )
+        with self.assertRaises(ModelUnavailable):
             run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
 
 
