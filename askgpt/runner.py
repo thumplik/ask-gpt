@@ -27,6 +27,42 @@ QUOTA_MARKERS = (
 
 DEFAULT_TIMEOUT = 1800
 
+# Event types that describe a failure OF the run. Verified against the CLI:
+# under --json a rejected model arrives as {"type":"error"} plus
+# {"type":"turn.failed"} on STDOUT, with stderr empty.
+ERROR_EVENT_TYPES = ("error", "turn.failed", "stream.error")
+
+
+def error_text(stdout, stderr):
+    """Return only text describing failures of the run, never content from it.
+
+    Codex echoes the material under review into agent_message and
+    command_execution events. Substring-scanning the whole stream therefore
+    reads the reviewed code as if it described the run: a review of anything
+    discussing rate limits was reported as a quota failure. Structured
+    extraction is the fix -- match on event type, not on words.
+    """
+    parts = []
+    if stderr:
+        parts.append(stderr)
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue  # not an event, so not evidence about the run
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") in ERROR_EVENT_TYPES:
+            parts.append(json.dumps(event))
+            continue
+        item = event.get("item")
+        if isinstance(item, dict) and item.get("type") == "error":
+            parts.append(json.dumps(item))
+    return "\n".join(parts)
+
 
 @dataclass
 class Result:
@@ -124,14 +160,15 @@ def run(
     # about the run -- a review of any code discussing rate limits was reported
     # as a quota failure and thrown away.
     if proc.returncode != 0:
-        lowered = combined.lower()
+        diagnostics = error_text(proc.stdout, proc.stderr)
+        lowered = diagnostics.lower()
         if any(marker in lowered for marker in QUOTA_MARKERS):
             raise QuotaExhausted(
                 "Codex reports a usage or rate limit on this ChatGPT plan.\n"
-                "Not retrying.\n\n" + combined.strip()[:2000]
+                "Not retrying.\n\n" + diagnostics.strip()[:2000]
             )
 
-        if UNSUPPORTED_MARKER in combined:
+        if UNSUPPORTED_MARKER in diagnostics:
             raise ModelUnavailable(
                 "Model '" + model + "' is not available on this ChatGPT account.\n"
                 "Failing closed rather than downgrading -- an independent review from a\n"

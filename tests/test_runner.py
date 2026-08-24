@@ -95,10 +95,12 @@ class RunTest(unittest.TestCase):
 
     def test_fails_closed_on_unsupported_model(self):
         # Real rejection exits non-zero; a stub exiting 0 proves only string matching.
+        # The real shape, verified against the CLI: a structured error event
+        # on stdout, stderr empty.
         stub = self._stub(
             "import sys\n"
-            "print('ERROR: The model is not supported when using Codex with a "
-            "ChatGPT account.')\n"
+            "print('{\"type\":\"error\",\"message\":\"The model is not supported "
+            "when using Codex with a ChatGPT account.\"}')\n"
             "sys.exit(1)\n"
         )
         with self.assertRaises(ModelUnavailable) as ctx:
@@ -143,6 +145,23 @@ class RunTest(unittest.TestCase):
         )
         result = run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
         self.assertIn("quota", result.text)
+
+    def test_reviewed_content_is_not_mistaken_for_a_run_error(self):
+        # Sol's repro, from its review of the first fix: reviewed text
+        # containing a quota phrase plus an UNRELATED failure must report the
+        # real failure. Restricting to non-zero exits was not enough -- only
+        # structured extraction distinguishes echoed content from diagnostics.
+        stub = self._stub(
+            "import sys\n"
+            "print('{\"type\":\"item.completed\",\"item\":{\"type\":"
+            "\"agent_message\",\"text\":\"the code says quota exceeded\"}}')\n"
+            "sys.stderr.write('connection reset\\n')\n"
+            "sys.exit(3)\n"
+        )
+        with self.assertRaises(AskGptError) as ctx:
+            run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertNotIsInstance(ctx.exception, QuotaExhausted)
+        self.assertIn("connection reset", str(ctx.exception))
 
     def test_quota_exhaustion_is_reported_plainly(self):
         stub = self._stub(
