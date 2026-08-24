@@ -1,0 +1,15 @@
+# Payloads and responses — may contain conversation content
+payload*.md
+out*.md
+followup*.md
+*.local
+scratchpad/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
