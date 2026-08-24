@@ -16,7 +16,11 @@ Then:
 0. If stderr carries a NOTE that the review came from a fallback model, lead with that.
    A weaker model's findings must not be presented as the pinned model's.
 1. Relay GPT's response **verbatim** in a quoted block. Do not summarise or soften it.
-2. Invoke the `superpowers:receiving-code-review` skill.
+2. If the `superpowers:receiving-code-review` skill is available, invoke it. It is
+   optional and this installer does not provide it, so if it is not present apply its
+   substance directly instead: verify before agreeing, never agree performatively, push
+   back with technical reasoning where you disagree, and say plainly when you cannot
+   tell without checking.
 3. Go finding by finding: **Agree** / **Disagree, because…** / **Need to check first**.
 4. Stop. Change nothing without the user's explicit instruction.
 

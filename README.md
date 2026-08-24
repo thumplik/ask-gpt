@@ -25,10 +25,21 @@ else's. If you are not logged in, the tool refuses and tells you to run `codex l
 Conversations contain more than people picture: file contents, paths, and anything that
 was pasted in.
 
-**Your repository.** Both commands let Codex read your working tree. **`read-only` means
-Codex cannot *modify* your repo — it does not mean Codex cannot *read* it.** Gitignored
-files, `.env`, local credentials, and test fixtures are all readable. A preflight warns
-on obvious sensitive files, but treat the whole working tree as in scope.
+**Your filesystem — not just your repository.** This is the part people get wrong, and
+the README got it wrong until it was measured.
+
+`read-only` is a **write** restriction. It does not confine reads to the repository.
+Verified on Codex 0.148.0-alpha.9: a `-s read-only` run read a file in `$HOME`, outside
+the working directory entirely — and it still did so with `sandbox_permissions=[]`. This
+tool also passes `--ignore-user-config`, so any narrowing you have configured locally
+does **not** apply.
+
+Treat everything your user account can read as reachable: `~/.ssh`, `~/.aws/credentials`,
+`~/.config/gh/hosts.yml`, `~/.codex/auth.json`, other repositories, browser profiles.
+
+The preflight scans **the repository only**. It is a useful check on the most likely
+place for an accident, not a boundary. There is no setting available to us that makes it
+one. If that reach is unacceptable for your machine, run this in a container or a VM.
 
 ### What crosses which boundary
 
@@ -36,14 +47,17 @@ There are three, and conflating them is how people misjudge the risk:
 
 | Boundary | What crosses it |
 |---|---|
-| Your machine → local Codex process | The whole repository. Codex runs locally and reads files directly. |
-| Local Codex → OpenAI | Whatever Codex decides to quote or summarise while reasoning, plus the payload we send. |
-| Never crosses | Nothing is written to your repo. `read-only` is enforced by Codex's sandbox. |
+| Your machine → local Codex process | **Anything your user account can read.** Measured, not assumed: `-s read-only` read a file in `$HOME` from a run whose working directory was this repo. |
+| Local Codex → OpenAI | Whatever Codex quotes or summarises while reasoning, plus the payload we send. |
+| Never crosses | Writes. Nothing is modified on disk — that part of `read-only` does hold. |
 
-The important consequence: **`read-only` constrains writes, not disclosure.** A file
-Codex reads can end up quoted in its reasoning and therefore uploaded, even though we
-never put it in the payload. That is why the preflight scans the whole tree rather than
-just the diff, and why it halts rather than warns.
+Two consequences, both uncomfortable and both true:
+
+**`read-only` constrains writes, not disclosure.** A file Codex reads can be quoted into
+its reasoning and uploaded even though we never put it in the payload.
+
+**The repository is not the boundary.** The preflight scans the repository because that
+is where accidents most often live, not because reads stop there. They do not.
 
 Protections built in:
 
@@ -72,6 +86,9 @@ The two overrides cover different boundaries and are deliberately separate:
 
 Worth stating plainly rather than leaving you to discover them:
 
+- **The preflight covers the repository, and Codex can read beyond it.** That is the
+  largest gap and it is not closable from here — no available Codex setting restricts
+  reads. Use a container if that matters for your machine.
 - Detection covers the common credential formats (OpenAI, GitHub, AWS, Slack, Google,
   Stripe, npm, PyPI, JWTs, private-key blocks) plus a catch-all that keys on the
   *variable name* — `DATABASE_PASSWORD = "…"` is flagged whatever the value looks like,
@@ -342,6 +359,11 @@ error stops and tells you what happened.
 - A ChatGPT plan that includes Codex
 - `codex login` completed — `codex login status` should report a ChatGPT account
 - Claude Code
+
+No other dependencies. The [superpowers](https://github.com/anthropics/claude-plugins-official)
+plugin is **optional**: `/gptreview` uses its `receiving-code-review` skill when present
+and falls back to equivalent inline instructions when not, so a clean install works
+without it.
 
 ## Design notes
 

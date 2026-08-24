@@ -88,6 +88,12 @@ check "$(grep -q 'resume ACCEPT1' "$WORK/codex.argv" && echo true || echo false)
 check "$(grep -qv -- '--last' "$WORK/codex.argv" && echo true || echo false)" "never used --last"
 
 echo "5. follow the README from scratch"
+check "$(grep -q 'not confined to the repository\|NOT confined to the repository' "$WORK/i.out" && echo true || echo false)" \
+      "installer discloses the read boundary"
+check "$(grep -q 'optional' "$REPO/README.md" && echo true || echo false)" \
+      "README declares superpowers optional"
+check "$(grep -q 'If the .superpowers:receiving-code-review. skill is available' "$REPO/commands/gptreview.md" && echo true || echo false)" \
+      "gptreview does not hard-depend on superpowers"
 for cmd in /gptreview /askgpt /gptfollow /gptusage; do
   check "$(grep -q -- "$cmd" "$REPO/README.md" && echo true || echo false)" "README documents $cmd"
 done

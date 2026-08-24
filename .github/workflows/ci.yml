@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Both, deliberately. The tool resolves the Codex binary from a macOS app
+    # bundle and the installer symlinks into a Unix config dir; Linux proves
+    # nothing depends on the developer's machine.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: No dependencies to install
+        run: python3 -c "import sys; print(sys.version)"
+      - name: Unit tests
+        run: make test
+      - name: Compile check
+        run: make lint
+      - name: Acceptance suite (fresh install, stub Codex)
+        run: make acceptance

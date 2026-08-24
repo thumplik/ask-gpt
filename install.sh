@@ -63,5 +63,14 @@ check_auth(binary)
 print("  auth:  ok")
 PY
 echo
+echo "----------------------------------------------------------------------"
+echo "Before you use this: Codex's read-only sandbox prevents WRITES, not"
+echo "reads. Reads are NOT confined to the repository -- a read-only run was"
+echo "measured reading a file in \$HOME. Anything your user account can read"
+echo "is reachable, including ~/.ssh and ~/.aws. The preflight scans the"
+echo "repository because that is where accidents usually are, not because"
+echo "reads stop there. Use a container if that reach is unacceptable."
+echo "----------------------------------------------------------------------"
+echo
 echo "Commands: /gptreview  /askgpt  /gptfollow  /gptusage"
 echo "Terminal: askgpt usage"
