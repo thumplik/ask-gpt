@@ -91,6 +91,34 @@ class PackTest(unittest.TestCase):
         records = [{"type": "user", "message": {"role": "user", "content": "only"}}]
         self.assertEqual(pack(records, drop_last_turns=3), "")
 
+    def test_fail_budget_caps_failed_output_across_turns(self):
+        # Distinct from fail_item_cap: each item fits individually, but together
+        # they exceed the cross-turn budget. Without this test the entire
+        # fail_budget branch can be deleted with the suite still green.
+        def failed(marker):
+            return {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "is_error": True, "content": marker * 400}
+                    ],
+                },
+            }
+
+        out = pack([failed("A"), failed("B"), failed("C")], fail_budget=900,
+                   fail_item_cap=1000)
+        self.assertIn("C" * 50, out)   # newest, 400 <= 900
+        self.assertIn("B" * 50, out)   # cumulative 800 <= 900
+        self.assertNotIn("A" * 50, out)  # cumulative 1200 > 900, skipped
+
+    def test_null_message_is_skipped_not_fatal(self):
+        out = pack([
+            {"type": "user", "message": None},
+            {"type": "user", "message": {"role": "user", "content": "survivor"}},
+        ])
+        self.assertIn("survivor", out)
+
 
 class ResolveSessionTest(unittest.TestCase):
     def setUp(self):

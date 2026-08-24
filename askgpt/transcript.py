@@ -71,7 +71,10 @@ def _render(record, fail_item_cap):
     if kind not in ("user", "assistant"):
         return None, 0
 
-    content = record.get("message", {}).get("content")
+    # `or {}` not `.get("message", {})`: a present-but-null message is a real
+    # shape in partial transcripts, and .get's default only covers an ABSENT key.
+    # Without this one record aborts packing for the whole session.
+    content = (record.get("message") or {}).get("content")
     parts = []
     failed_chars = 0
 
@@ -125,7 +128,10 @@ def pack(
             turns.append((rendered, failed_chars))
 
     if drop_last_turns:
-        turns = turns[: len(turns) - drop_last_turns] if drop_last_turns <= len(turns) else []
+        if drop_last_turns >= len(turns):
+            turns = []
+        else:
+            turns = turns[:-drop_last_turns]
 
     chosen = []
     used = 0
@@ -133,6 +139,9 @@ def pack(
     truncated = False
 
     for rendered, failed_chars in reversed(turns):
+        # `continue`, not `break`: one oversized failure should not hide older
+        # unrelated turns. (`break` below IS right for the main budget -- turns
+        # are visited newest-first, so once one does not fit, none older will.)
         if failed_chars and failed_used + failed_chars > fail_budget:
             continue
         if used + len(rendered) > budget:
