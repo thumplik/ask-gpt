@@ -95,6 +95,9 @@ def dispatch(args, payload, resume_thread=None):
         if result.thread_id and args.session_id:
             state.save_thread(state_dir(), args.session_id, result.thread_id)
 
+        if args.keep:
+            print("Artifacts kept in " + str(art.dir), file=sys.stderr)
+
         print(result.text)
     return 0
 

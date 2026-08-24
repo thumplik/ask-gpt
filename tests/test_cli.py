@@ -174,6 +174,18 @@ class AskTest(CliTestCase):
         )
         return config
 
+    def test_missing_session_id_warns_about_the_mtime_fallback(self):
+        # The fallback can select another window's session. Silent is not an
+        # option; dropping the warning passed the whole suite.
+        repo = self.make_repo()
+        config = self.make_transcript(repo, "33333333-4444-5555-6666-777777777777")
+        result = run_cli(
+            "ask", "Q?", "--dry-run", "--cwd", str(repo),
+            env=self.env(CLAUDE_CONFIG_DIR=str(config), CODEX_BIN=self.landmine()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mtime", result.stderr.lower())
+
     def test_dry_run_packs_the_named_session_offline(self):
         # The ask path's session mapping, transcript resolution, invocation
         # removal and packing are otherwise never exercised end to end.
@@ -191,6 +203,62 @@ class AskTest(CliTestCase):
         self.assertIn("BOOM EVIDENCE", result.stdout)      # failed output retained
         self.assertNotIn("THE INVOCATION", result.stdout)  # last turn dropped
         self.assertFalse(self.marker.exists())
+
+
+class PlumbingTest(CliTestCase):
+    """Flags that are silently ignorable. Each of these was droppable with the
+    whole suite green until it had a test."""
+
+    def recorder(self):
+        path = self.root / "codex-recorder"
+        self.argv_log = self.root / "argv.txt"
+        path.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "argv = sys.argv\n"
+            "if 'login' in argv:\n"
+            "    print('Logged in using ChatGPT')\n"
+            "    sys.exit(0)\n"
+            "open('" + str(self.argv_log) + "', 'w').write(' '.join(argv))\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('OK')\n"
+        )
+        path.chmod(0o755)
+        return str(path)
+
+    def test_model_flag_reaches_codex(self):
+        # Silently ignoring --model means the user believes they overrode the
+        # model and did not -- and the review looks completely normal.
+        repo = self.make_repo()
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T", "--model", "gpt-custom-999",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.recorder()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("gpt-custom-999", self.argv_log.read_text())
+
+    def test_keep_preserves_artifacts_on_a_real_run(self):
+        repo = self.make_repo()
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T", "--keep",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.working_codex()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        kept = [w for w in result.stderr.split() if "askgpt-" in w]
+        self.assertTrue(kept, result.stderr)
+        self.assertTrue(Path(kept[0]).is_dir())
+
+    def test_preflight_warns_about_sensitive_files(self):
+        # Deleting the preflight call entirely passed the whole suite. It is a
+        # privacy feature; its absence must not be silent.
+        repo = self.make_repo()
+        (repo / ".env").write_text("TOKEN=x\n")
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.working_codex()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(".env", result.stderr)
+        self.assertIn("read", result.stderr.lower())
 
 
 class FollowTest(CliTestCase):
