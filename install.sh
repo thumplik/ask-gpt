@@ -27,9 +27,28 @@ link "$REPO"                          "$CLAUDE_DIR/ask-gpt"
 link "$REPO/commands/gptreview.md"    "$CLAUDE_DIR/commands/gptreview.md"
 link "$REPO/commands/askgpt.md"       "$CLAUDE_DIR/commands/askgpt.md"
 link "$REPO/commands/gptfollow.md"    "$CLAUDE_DIR/commands/gptfollow.md"
-link "$REPO"                          "$CLAUDE_DIR/skills/ask-gpt"
+link "$REPO/commands/gptusage.md"     "$CLAUDE_DIR/commands/gptusage.md"
+# Retire the old skill name: it sat beside /askgpt looking like a duplicate.
+# Only ever removes a symlink, and only one pointing back into this repo.
+OLD_SKILL="$CLAUDE_DIR/skills/ask-gpt"
+if [ -L "$OLD_SKILL" ] && [ "$(readlink "$OLD_SKILL")" = "$REPO" ]; then
+  rm -f "$OLD_SKILL"
+  echo "  removed superseded skill link $OLD_SKILL"
+fi
+
+link "$REPO"                          "$CLAUDE_DIR/skills/second-opinion"
 
 chmod +x "$REPO/bin/askgpt"
+
+# Put the CLI on PATH so `askgpt usage` works from any terminal, not just via
+# its full path.
+BIN_DIR="${ASKGPT_BIN_DIR:-$HOME/.local/bin}"
+mkdir -p "$BIN_DIR"
+link "$REPO/bin/askgpt" "$BIN_DIR/askgpt"
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *) echo "  note: $BIN_DIR is not on your PATH; add it to use \`askgpt\` directly" ;;
+esac
 
 echo "Verifying Codex..."
 # The path travels via the environment. Interpolating it into a Python string
@@ -43,4 +62,6 @@ print("  codex: " + binary)
 check_auth(binary)
 print("  auth:  ok")
 PY
-echo "Run /gptreview or /askgpt in Claude Code."
+echo
+echo "Commands: /gptreview  /askgpt  /gptfollow  /gptusage"
+echo "Terminal: askgpt usage"

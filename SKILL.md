@@ -1,11 +1,15 @@
 ---
-name: ask-gpt
+name: second-opinion
 description: Use when the user wants an independent second opinion or adversarial code review from GPT, or says "ask GPT", "ask Sol", "get a second opinion", or "have GPT review this"
 ---
 
-# ask-gpt
+# second-opinion
 
 Sends work to GPT-5.6-sol through the Codex CLI and relays the response.
+
+Named `second-opinion` rather than `ask-gpt` so it does not sit next to the `/askgpt`
+command looking like a near-duplicate of it. This is context for when to reach for the
+tool; the commands below are what actually run.
 
 - `/gptreview` — adversarial review of the current change. GPT sees the task and the
   code, never Claude's account of what it did. That independence is the point.

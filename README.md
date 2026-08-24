@@ -94,6 +94,21 @@ install is symlinks, not copies.
 
 ## Usage
 
+### The command surface
+
+| | What it is |
+|---|---|
+| `/gptreview` | Adversarial review of your branch or working tree |
+| `/askgpt <question>` | A question, with your recent conversation attached |
+| `/gptfollow <pushback>` | Continue the same thread to argue with a finding |
+| `/gptusage` | Remaining plan quota. Costs nothing |
+| `askgpt …` | The same thing from a terminal — the installer puts it on your PATH |
+
+There is also a **skill** named `second-opinion`. It is not a command; it is context that
+lets Claude reach for these tools when you say "get a second opinion" without typing a
+slash command. It is deliberately *not* called `ask-gpt`, so it does not sit next to
+`/askgpt` looking like a duplicate of it.
+
 ### The everyday loop
 
 Work with Claude as normal. When you want an independent opinion:
@@ -184,6 +199,12 @@ unavailable slug is rejected before inference.
 ### Checking how much quota you have left
 
 ```
+/gptusage
+```
+
+or from any terminal:
+
+```bash
 askgpt usage
 ```
 

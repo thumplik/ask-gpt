@@ -23,6 +23,7 @@ class InstallTest(unittest.TestCase):
             os.environ,
             CLAUDE_CONFIG_DIR=str(self.claude),
             CODEX_BIN=str(stub),
+            ASKGPT_BIN_DIR=str(self.root / "bin"),
         )
 
     def install(self):
@@ -34,8 +35,18 @@ class InstallTest(unittest.TestCase):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
         for rel in ("ask-gpt", "commands/gptreview.md", "commands/askgpt.md",
-                    "commands/gptfollow.md", "skills/ask-gpt"):
+                    "commands/gptfollow.md", "commands/gptusage.md",
+                    "skills/second-opinion"):
             self.assertTrue((self.claude / rel).is_symlink(), rel)
+
+    def test_puts_the_cli_on_path(self):
+        # `askgpt usage` should work from a terminal, not only via a full path.
+        self.install()
+        link = self.root / "bin" / "askgpt"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(
+            os.path.realpath(link), str((REPO / "bin" / "askgpt").resolve())
+        )
 
     def test_cli_is_executable_afterwards(self):
         self.install()
@@ -47,7 +58,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
 
     def test_refuses_to_clobber_a_real_directory(self):
-        victim = self.claude / "skills" / "ask-gpt"
+        victim = self.claude / "skills" / "second-opinion"
         victim.mkdir(parents=True)
         (victim / "precious.md").write_text("do not delete me")
         result = self.install()
@@ -59,7 +70,7 @@ class InstallTest(unittest.TestCase):
         # Existence is not correctness: swapping the two command links passes
         # a .is_symlink() check while giving you the wrong prompt entirely.
         self.install()
-        for name in ("gptreview.md", "askgpt.md", "gptfollow.md"):
+        for name in ("gptreview.md", "askgpt.md", "gptfollow.md", "gptusage.md"):
             self.assertEqual(
                 os.path.realpath(self.claude / "commands" / name),
                 str((REPO / "commands" / name).resolve()),
@@ -68,7 +79,9 @@ class InstallTest(unittest.TestCase):
 
     def test_skill_link_resolves_to_a_directory_holding_skill_md(self):
         self.install()
-        self.assertTrue((self.claude / "skills" / "ask-gpt" / "SKILL.md").is_file())
+        self.assertTrue(
+            (self.claude / "skills" / "second-opinion" / "SKILL.md").is_file()
+        )
 
     def test_reports_the_codex_binary_and_auth(self):
         result = self.install()
