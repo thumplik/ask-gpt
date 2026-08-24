@@ -13,3 +13,6 @@ scratchpad/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Runtime state lives in ~/.askgpt, not here -- but ignore a stray local one
+.state/
