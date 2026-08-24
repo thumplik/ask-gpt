@@ -138,4 +138,11 @@ def format_warning(hits):
         lines.append("  " + str(hit))
     lines.append("")
     lines.append("Move or remove anything that must not leave this machine.")
+    lines.append("")
+    lines.append(
+        "Note: this scan covers the repository. Codex's read-only sandbox is NOT"
+    )
+    lines.append(
+        "confined to it -- reads can reach your home directory and beyond."
+    )
     return "\n".join(lines)
