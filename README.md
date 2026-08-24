@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 208 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
+> **Status: built and working.** 210 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -49,12 +49,17 @@ There are three, and conflating them is how people misjudge the risk:
 |---|---|
 | Your machine → local Codex process | **Anything your user account can read.** Measured, not assumed: `-s read-only` read a file in `$HOME` from a run whose working directory was this repo. |
 | Local Codex → OpenAI | Whatever Codex quotes or summarises while reasoning, plus the payload we send. |
-| Never crosses | Writes. Nothing is modified on disk — that part of `read-only` does hold. |
+| Constrained, not absent | Codex's **agent tools** cannot modify your workspace. Files are still written: payloads, response archives, thread state, and Codex's own session logs — `askgpt usage` reads those logs, so writes demonstrably happen. |
 
 Two consequences, both uncomfortable and both true:
 
-**`read-only` constrains writes, not disclosure.** A file Codex reads can be quoted into
-its reasoning and uploaded even though we never put it in the payload.
+**`read-only` constrains agent writes, not disclosure.** A file Codex reads can be quoted
+into its reasoning and uploaded even though we never put it in the payload.
+
+**`--dry-run` shows the initial payload, not everything that may leave.** It is exactly
+what we send. Once a real run starts, Codex reads further files and may transmit what it
+reads or derives. We cannot enumerate or audit the complete outbound context — nobody in
+this position can.
 
 **The repository is not the boundary.** The preflight scans the repository because that
 is where accidents most often live, not because reads stop there. They do not.
@@ -254,8 +259,10 @@ machine and costs nothing.
 
 ### If the pinned model is unavailable
 
-Reviews use `gpt-5.6-sol`. If your plan cannot reach it, the run falls through to a
-weaker model rather than failing, so you still get an answer — and says so
+Reviews attempt `gpt-5.6-sol`, then `gpt-5.6-terra` where permitted. **Both may be
+unavailable to you** — availability depends on your plan, workspace policy, region and
+Codex version, and managed Business/Edu/Enterprise workspaces can restrict models or
+local Codex entirely. When a fallback happens the run continues rather than failing — and says so
 unmissably:
 
 ```
@@ -288,8 +295,12 @@ Used:   2% of the 7-day window
 Resets: 2026-08-30 20:35
 ```
 
-This costs nothing. Codex writes a rate-limit record into its own session log on every
-run, so the figure is read from disk rather than requested — checking your remaining
+**Best-effort, not authoritative.** It reads an undocumented local Codex session record,
+reports the `primary` window only, and may miss other allowances or credit pools. It
+reports what has been *used*, not what remains. Treat Codex's own `/status` or the OpenAI
+usage dashboard as authoritative.
+
+It costs nothing: the figure is read from disk rather than requested — checking your remaining
 allowance should not consume it. The reading is only as fresh as your last Codex run,
 which the output says plainly, and every review refreshes it.
 
@@ -342,7 +353,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 |---|---|
 | `Could not find the Codex CLI` | Install the ChatGPT desktop app, or set `CODEX_BIN`. |
 | `Codex is not logged in` | Run `codex login` yourself. The tool never handles auth. |
-| `Model … is not available` | Your plan lacks that model. It fails closed rather than quietly downgrading. |
+| `Model … is not available` | Your plan lacks it. The run falls back to a weaker model and says so loudly; `--no-fallback` fails instead. |
 | Halts naming `.env` or similar | Working as designed. Move the file, or pass `--allow-sensitive-files`. |
 | `No transcript at …` | `ask` needs a real Claude session id. Use `review` instead, which needs none. |
 | `No staged, unstaged, or untracked changes` | Nothing to review. Commit first and use `--base`, or `--commit HEAD`. |
@@ -350,7 +361,20 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 208 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
+`make test` runs the full suite — 210 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
+
+## Supported platforms
+
+| Platform | Status |
+|---|---|
+| macOS | Tested, including live runs against a real account |
+| Linux | CI-tested (unit + acceptance) with a **stubbed** Codex. The live auth and inference path is **not** yet verified on Linux |
+| WSL | Untested. Codex and Claude Code must be authenticated *inside* the same WSL environment; a Windows desktop install does not satisfy that |
+| Native Windows | **Unsupported.** The installer needs Bash, Unix symlinks and Unix permissions |
+
+Passing Ubuntu CI proves the Python and installer are portable. It does not prove a real
+Linux authentication and inference path — those are different claims and only the first
+is evidenced.
 
 ## Requirements
 
@@ -360,7 +384,10 @@ error stops and tells you what happened.
 - `codex login` completed — `codex login status` should report a ChatGPT account
 - Claude Code
 
-No other dependencies. The [superpowers](https://github.com/anthropics/claude-plugins-official)
+Also needed: Python 3.9+, Git, and a Unix shell — all present by default on macOS and
+Linux. Nothing to `pip install`.
+
+The [superpowers](https://github.com/anthropics/claude-plugins-official)
 plugin is **optional**: `/gptreview` uses its `receiving-code-review` skill when present
 and falls back to equivalent inline instructions when not, so a clean install works
 without it.
@@ -386,6 +413,29 @@ A few findings from building this, verified rather than assumed:
   `--last` is never used, since it can attach to an unrelated Codex session.
 
 Full detail in the [design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md).
+
+## Data this tool stores
+
+Under `~/.askgpt` (override with `$ASKGPT_STATE_DIR`): Codex thread ids, and the full
+text of the last 50 reviews at `0600` (older ones pruned automatically). Payloads live in
+a `0700` temp directory and are deleted after each run unless `--keep` is passed or a
+secret-scan halt preserves one for inspection. Codex writes its own session logs under
+`~/.codex/sessions` independently.
+
+Remove everything ask-gpt has stored with `rm -rf ~/.askgpt`.
+
+See [SECURITY.md](SECURITY.md) for the threat model, what counts as a mitigation versus
+an actual boundary, and guidance for organisational use.
+
+## Status
+
+**Public beta.** The engineering is solid and the review loop has found real defects in
+its own implementation repeatedly. What holds it back from an unqualified v1 is release
+contract rather than code: the live path is verified on macOS only, Codex compatibility
+is pinned to one tested build rather than a supported range, and several behaviours
+depend on undocumented Codex internals that a future release may move.
+
+Install it, use it, and read [the privacy section](#privacy--read-this-first) first.
 
 ## License
 

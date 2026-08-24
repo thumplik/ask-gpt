@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from askgpt.codex import check_auth, find_codex
+from askgpt.codex import TESTED_VERSION, check_auth, find_codex, version, version_warning
 from askgpt.errors import CodexNotAuthenticated, CodexNotFound
 
 
@@ -116,6 +116,35 @@ class CheckAuthTest(unittest.TestCase):
         with self.assertRaises(CodexNotAuthenticated) as ctx:
             check_auth(self._stub('echo "config parse error" >&2; exit 2'))
         self.assertIn("config parse error", str(ctx.exception))
+
+
+class VersionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _stub(self, body):
+        path = self.dir / "codex-v"
+        path.write_text("#!/bin/sh\n" + body + "\n")
+        path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        return str(path)
+
+    def test_parses_the_reported_version(self):
+        self.assertEqual(version(self._stub('echo "codex-cli 1.2.3"')), "1.2.3")
+
+    def test_matching_version_produces_no_warning(self):
+        stub = self._stub('echo "codex-cli ' + TESTED_VERSION + '"')
+        self.assertIsNone(version_warning(stub))
+
+    def test_different_version_warns_and_names_both(self):
+        stub = self._stub('echo "codex-cli 9.9.9"')
+        message = version_warning(stub)
+        self.assertIn("9.9.9", message)
+        self.assertIn(TESTED_VERSION, message)
+
+    def test_unknown_version_still_warns(self):
+        self.assertIsNotNone(version_warning(str(self.dir / "absent")))
 
 
 if __name__ == "__main__":

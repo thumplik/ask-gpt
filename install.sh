@@ -56,11 +56,16 @@ echo "Verifying Codex..."
 ASKGPT_REPO="$REPO" python3 - <<'PY'
 import os, sys
 sys.path.insert(0, os.environ["ASKGPT_REPO"])
-from askgpt.codex import find_codex, check_auth
+from askgpt.codex import find_codex, check_auth, version, version_warning
 binary = find_codex()
 print("  codex: " + binary)
+print("  build: " + (version(binary) or "unknown"))
 check_auth(binary)
 print("  auth:  ok")
+caveat = version_warning(binary)
+if caveat:
+    print()
+    print("  WARNING: " + caveat.replace("\n", "\n           "))
 PY
 echo
 echo "----------------------------------------------------------------------"

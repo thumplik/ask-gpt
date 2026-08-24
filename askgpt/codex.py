@@ -8,6 +8,14 @@ from .errors import CodexNotAuthenticated, CodexNotFound
 
 # Ordered fallbacks. The CLI ships inside the ChatGPT desktop bundle and is
 # not placed on PATH by the installer.
+# The build this was developed and verified against. ask-gpt depends on several
+# Codex contracts that are not public API: the `login status` wording and which
+# stream it uses, `exec --ignore-user-config --json -o`, the `thread.started`
+# and `turn.failed` event names, the unsupported-model error text, and the
+# on-disk rollout layout that `askgpt usage` reads. A different build may move
+# any of them, so the version is surfaced rather than assumed.
+TESTED_VERSION = "0.148.0-alpha.9"
+
 DEFAULT_CANDIDATES = (
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     "~/.codex/bin/codex",
@@ -96,3 +104,38 @@ def check_auth(codex_bin: str, timeout: int = 30) -> None:
                 "\nCodex said (exit " + str(result.returncode) + "):\n" + detail[:500]
             )
         raise CodexNotAuthenticated(message)
+
+
+def version(codex_bin, timeout=15):
+    """Return the reported version string, or None if it cannot be determined."""
+    try:
+        result = subprocess.run(
+            [codex_bin, "--version"], capture_output=True, text=True, timeout=timeout
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    reported = ((result.stdout or "") + (result.stderr or "")).strip()
+    return reported.split()[-1] if reported else None
+
+
+def version_warning(codex_bin):
+    """A caveat when the CLI is not the build this was verified against.
+
+    Returns None when it matches. Deliberately a warning and not a refusal: a
+    newer Codex will usually work, and blocking every user on an exact match
+    would age badly. But the dependencies are undocumented, so silence would
+    be worse -- a mismatch shows up later as a confusing auth failure, a lost
+    thread, or wrong usage figures.
+    """
+    found = version(codex_bin)
+    if found is None:
+        return "Could not determine the Codex version; expected " + TESTED_VERSION + "."
+    if found == TESTED_VERSION:
+        return None
+    return (
+        "Codex " + found + " differs from the tested " + TESTED_VERSION + ".\n"
+        "ask-gpt relies on undocumented Codex behaviour (login-status wording and\n"
+        "stream, --json event names, error strings, session-log layout). If auth,\n"
+        "thread continuation or usage reporting misbehave, this is the first thing\n"
+        "to suspect."
+    )
