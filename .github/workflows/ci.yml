@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel superseded runs on the same ref so a re-push doesn't queue stale jobs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     # Both, deliberately. The tool resolves the Codex binary from a macOS app
