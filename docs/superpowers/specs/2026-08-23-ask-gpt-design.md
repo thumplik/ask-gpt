@@ -91,19 +91,32 @@ tool is available in every project and edits apply in one place.
 
 ```
 ask-gpt/
-|-- SKILL.md                        # when to reach for this; how to read results
-|-- install.sh                      # symlinks
-|-- commands/askgpt.md
-|-- commands/gptreview.md
+|-- bin/askgpt                      # executable entry: argument parsing only
+|-- askgpt/
+|   |-- errors.py                   # exception hierarchy
+|   |-- codex.py                    # binary resolution + auth check
+|   |-- transcript.py               # Claude JSONL -> filtered dialogue
+|   |-- secrets.py                  # payload secret scanning
+|   |-- preflight.py                # whole-tree sensitive-file scan
+|   |-- gitctx.py                   # default branch + target resolution
+|   |-- artifacts.py                # 0700/0600 scratch lifecycle
+|   |-- state.py                    # thread-id persistence
+|   |-- runner.py                   # codex exec argv, run, event parsing
+|   `-- prompts.py                  # payload assembly
 |-- prompts/adversarial-review.md
-|-- bin/codex-path.sh               # binary resolution + auth check
-|-- bin/pack-transcript.py          # JSONL -> capped markdown
-|-- bin/ask-gpt.sh                  # orchestrator
-|-- tests/fixtures/                 # synthetic transcripts only
-|-- docs/superpowers/specs/
+|-- commands/askgpt.md, gptreview.md
+|-- SKILL.md
+|-- install.sh                      # symlinks into the Claude config dir
+|-- tests/                          # unittest suites + synthetic fixtures
+|-- docs/superpowers/{specs,plans}/
 |-- README.md
 `-- LICENSE
 ```
+
+**Language split:** Python for all logic, Bash only for `install.sh`. Payloads carry
+arbitrary code and quotes; routing them through shell variables invites quoting bugs that
+surface as corrupted prompts rather than clean errors. Standard library only — no
+third-party dependencies, so `make test` works on a fresh clone.
 
 ## 6. Components
 
