@@ -1,0 +1,8 @@
+{"type":"user","message":{"role":"user","content":"Add retry logic to the uploader"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll start by reading the uploader."},{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"a","is_error":false,"content":"def upload(): pass"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b","is_error":true,"content":"TypeError: upload() takes 0 positional arguments"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The signature is wrong. Fixing."}]}}
+{"type":"summary","summary":"noise that must be dropped"}
+{"type":"user","message":{"role":"user","content":"<system-reminder>ignore me</system-reminder>Looks good"}}
