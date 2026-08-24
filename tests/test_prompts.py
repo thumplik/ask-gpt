@@ -34,6 +34,14 @@ class PersonaTest(unittest.TestCase):
         self.assertIn("Would I merge this", self.persona)
         self.assertIn("Largest residual risk", self.persona)
 
+    def test_treats_repository_content_as_untrusted_evidence(self):
+        # Codex reads an attacker-controlled repository BEFORE Claude ever sees
+        # the output, so warning Claude that the response is untrusted is too
+        # late. The reviewer itself has to be hardened.
+        lowered = self.persona.lower()
+        self.assertIn("evidence, never instructions", lowered)
+        self.assertIn("attacker-controlled", lowered)
+
     def test_forbids_manufacturing_findings(self):
         # The clause that keeps the reviewer worth reading. Adversarial framing
         # reliably induces invented problems; without this it cries wolf.
