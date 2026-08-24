@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 210 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
+> **Status: built and working.** 269 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -415,7 +415,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 210 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
+`make test` runs the full suite — 269 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
 
 ## Supported platforms
 
