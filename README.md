@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 173 tests, and the tool has been used to review its
+> **Status: built and working.** 183 tests, and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -154,6 +154,7 @@ missing context does not.
 | `--dry-run` | Build the payload, print it, send nothing. Free. |
 | `--keep` | Keep the payload and response files, and print where. |
 | `--model <slug>` | Override the pinned model. Warns loudly, since the point is Sol's judgement. |
+| `--no-fallback` | Fail outright instead of falling back to a weaker model. |
 | `--allow-secrets` | Proceed past the secret scan (for false positives). |
 | `--allow-sensitive-files` | Proceed past the sensitive-file halt. |
 
@@ -161,6 +162,24 @@ There is also `askgpt usage`, which takes no flags and makes no network call.
 
 **Start with `--dry-run` the first time.** It shows you exactly what would leave your
 machine and costs nothing.
+
+### If the pinned model is unavailable
+
+Reviews use `gpt-5.6-sol`. If your plan cannot reach it, the run falls through to a
+weaker model rather than failing, so you still get an answer — and says so
+unmissably:
+
+```
+====================================================================
+NOTE: gpt-5.6-sol was unavailable. This review is from gpt-5.6-terra,
+      a weaker model. Weigh it accordingly, and re-run later for gpt-5.6-sol.
+====================================================================
+```
+
+Pass `--no-fallback` to fail instead. Only an unavailable *model* advances the chain —
+quota, transport and auth failures still stop at the first attempt, because retrying
+those would spend real quota and would not help. Trying another model costs nothing: an
+unavailable slug is rejected before inference.
 
 ### Checking how much quota you have left
 
@@ -221,7 +240,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 173 tests, no dependencies to install.
+`make test` runs the full suite — 183 tests, no dependencies to install.
 
 ## Requirements
 

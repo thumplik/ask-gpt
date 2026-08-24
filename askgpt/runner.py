@@ -9,6 +9,12 @@ from .errors import AskGptError, ModelUnavailable, QuotaExhausted
 
 MODEL = "gpt-5.6-sol"
 
+# Tried in order when the pinned model is unavailable. Retrying here does NOT
+# violate the never-retry rule: an unavailable slug is rejected with HTTP 400
+# BEFORE inference (verified), so a model retry costs no quota. Every other
+# failure -- transport, auth, quota -- still stops at the first attempt.
+FALLBACK_MODELS = ("gpt-5.6-terra",)
+
 # Emitted verbatim by the API when a slug is not available to the account.
 UNSUPPORTED_MARKER = "is not supported when using Codex with a ChatGPT account"
 
@@ -70,6 +76,16 @@ class Result:
     thread_id: str
     returncode: int
     stderr: str
+    model: str = MODEL          # which model actually answered
+    fell_back: bool = False     # True when it was not the one requested
+
+
+def model_chain(model=MODEL, fallback=True):
+    """The requested model, then the fallbacks, without duplicates."""
+    chain = [model]
+    if fallback:
+        chain += [m for m in FALLBACK_MODELS if m != model]
+    return chain
 
 
 def build_argv(
@@ -121,7 +137,7 @@ def parse_thread_id(stream_text):
     return None
 
 
-def run(
+def run_once(
     codex_bin,
     payload,
     cwd,
@@ -130,6 +146,7 @@ def run(
     resume_thread=None,
     timeout=DEFAULT_TIMEOUT,
 ):
+    """One attempt with one model. Never retries anything."""
     argv = build_argv(codex_bin, out_path, model=model, resume_thread=resume_thread)
     try:
         proc = subprocess.run(
@@ -171,9 +188,8 @@ def run(
         if UNSUPPORTED_MARKER in diagnostics:
             raise ModelUnavailable(
                 "Model '" + model + "' is not available on this ChatGPT account.\n"
-                "Failing closed rather than downgrading -- an independent review from a\n"
-                "weaker model is not the review that was requested.\n"
-                "Override deliberately with --model if you want a different one."
+                "Re-run with --model <slug> to choose a different one, or\n"
+                "--no-fallback to fail immediately rather than trying a weaker model."
             )
 
         # Any non-zero exit is a failure, even when out.md holds partial or stale
@@ -205,4 +221,43 @@ def run(
         thread_id=parse_thread_id(proc.stdout or ""),
         returncode=proc.returncode,
         stderr=proc.stderr or "",
+        model=model,
+        fell_back=False,
     )
+
+
+def run(
+    codex_bin,
+    payload,
+    cwd,
+    out_path,
+    model=MODEL,
+    resume_thread=None,
+    timeout=DEFAULT_TIMEOUT,
+    fallback=True,
+):
+    """Try the requested model, then fallbacks if it is unavailable.
+
+    ONLY ModelUnavailable advances the chain. A quota, transport, or auth
+    failure stops immediately -- those retries would cost real quota, and
+    repeating them would not help.
+    """
+    chain = model_chain(model, fallback=fallback)
+    last = None
+    for index, candidate in enumerate(chain):
+        try:
+            result = run_once(
+                codex_bin,
+                payload,
+                cwd,
+                out_path,
+                model=candidate,
+                resume_thread=resume_thread,
+                timeout=timeout,
+            )
+        except ModelUnavailable as error:
+            last = error
+            continue
+        result.fell_back = index > 0
+        return result
+    raise last

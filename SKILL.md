@@ -24,5 +24,8 @@ implement suggestions without the user's word.
 ## Reporting failures
 
 If the command fails, show the user the actual error. Never retry automatically: retries
-consume ChatGPT subscription quota. If the model is unavailable, do not substitute a
-weaker one — the request was for Sol specifically.
+consume ChatGPT subscription quota.
+
+If the output carries a NOTE saying the review came from a fallback model, say so
+prominently in your reply before relaying anything. A weaker model's opinion must not be
+presented as the pinned model's.

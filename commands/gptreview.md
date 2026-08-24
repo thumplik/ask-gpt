@@ -13,6 +13,8 @@ verified in spec §2 — so it must be supplied on the command line.
 
 Then:
 
+0. If stderr carries a NOTE that the review came from a fallback model, lead with that.
+   A weaker model's findings must not be presented as the pinned model's.
 1. Relay GPT's response **verbatim** in a quoted block. Do not summarise or soften it.
 2. Invoke the `superpowers:receiving-code-review` skill.
 3. Go finding by finding: **Agree** / **Disagree, because…** / **Need to check first**.

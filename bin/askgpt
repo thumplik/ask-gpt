@@ -32,6 +32,11 @@ def add_common(parser):
     parser.add_argument("--model", default=runner.MODEL)
     parser.add_argument("--allow-secrets", action="store_true")
     parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="Fail instead of falling back to a weaker model.",
+    )
+    parser.add_argument(
         "--allow-sensitive-files",
         action="store_true",
         help="Proceed even though sensitive files are readable by Codex.",
@@ -120,7 +125,21 @@ def dispatch(args, payload, resume_thread=None):
             out_path=art.path("out.md"),
             model=args.model,
             resume_thread=resume_thread,
+            fallback=not args.no_fallback,
         )
+
+        if result.fell_back:
+            # Unmissable: a weaker model's opinion must never be mistaken for
+            # the one this tool exists to obtain.
+            print(
+                "=" * 68 + "\n"
+                "NOTE: " + args.model + " was unavailable. This review is from "
+                + result.model + ",\n"
+                "      a weaker model. Weigh it accordingly, and re-run later "
+                "for " + args.model + ".\n"
+                + "=" * 68,
+                file=sys.stderr,
+            )
 
         thread_key = args.session_id or getattr(args, "_fallback_session", None)
         if result.thread_id and thread_key:

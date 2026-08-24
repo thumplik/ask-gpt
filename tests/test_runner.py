@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from askgpt.runner import MODEL, build_argv, parse_thread_id, run
+from askgpt.runner import MODEL, build_argv, model_chain, parse_thread_id, run
 from askgpt.errors import AskGptError, ModelUnavailable, QuotaExhausted
 
 
@@ -68,6 +68,21 @@ class ParseThreadIdTest(unittest.TestCase):
         self.assertIsNone(parse_thread_id('{"type":"turn.started"}\n'))
 
 
+class ModelChainTest(unittest.TestCase):
+    def test_default_chain_puts_the_pinned_model_first(self):
+        self.assertEqual(model_chain()[0], MODEL)
+
+    def test_fallback_follows_the_pinned_model(self):
+        self.assertGreater(len(model_chain()), 1)
+
+    def test_no_fallback_yields_only_the_request(self):
+        self.assertEqual(model_chain(fallback=False), [MODEL])
+
+    def test_requested_model_is_never_duplicated(self):
+        chain = model_chain("gpt-5.6-terra")
+        self.assertEqual(len(chain), len(set(chain)))
+
+
 class RunTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -93,19 +108,20 @@ class RunTest(unittest.TestCase):
         self.assertEqual(result.text, "REVIEW BODY")
         self.assertEqual(result.thread_id, "T9")
 
-    def test_fails_closed_on_unsupported_model(self):
-        # Real rejection exits non-zero; a stub exiting 0 proves only string matching.
-        # The real shape, verified against the CLI: a structured error event
-        # on stdout, stderr empty.
+    def test_raises_when_every_model_in_the_chain_is_unavailable(self):
+        # Fallback means "try the next one", not "succeed anyway". With the
+        # whole chain exhausted this must still raise rather than returning an
+        # empty result that reads like a clean review.
+        # (The real rejection shape, verified against the CLI: a structured
+        # error event on stdout, stderr empty.)
         stub = self._stub(
             "import sys\n"
             "print('{\"type\":\"error\",\"message\":\"The model is not supported "
             "when using Codex with a ChatGPT account.\"}')\n"
             "sys.exit(1)\n"
         )
-        with self.assertRaises(ModelUnavailable) as ctx:
+        with self.assertRaises(ModelUnavailable):
             run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
-        self.assertNotIn("terra", str(ctx.exception).lower())
 
     def test_nonzero_exit_fails_even_with_output_written(self):
         # Codex can write partial output and then fail. Returning it would report
@@ -180,6 +196,60 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(AskGptError) as ctx:
             run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
         self.assertIn("no response", str(ctx.exception).lower())
+
+    def test_falls_back_when_the_pinned_model_is_unavailable(self):
+        # Rejecting a slug costs no quota (400 before inference), so advancing
+        # the chain here does not violate the never-retry rule.
+        stub = self._stub(
+            "import sys\n"
+            "argv = sys.argv\n"
+            "model = argv[argv.index('-m') + 1]\n"
+            "if model == '" + MODEL + "':\n"
+            "    print('{\"type\":\"error\",\"message\":\"is not supported when "
+            "using Codex with a ChatGPT account\"}')\n"
+            "    sys.exit(1)\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('FALLBACK REVIEW')\n"
+        )
+        result = run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertEqual(result.text, "FALLBACK REVIEW")
+        self.assertNotEqual(result.model, MODEL)
+        self.assertTrue(result.fell_back)
+
+    def test_no_fallback_restores_fail_closed(self):
+        stub = self._stub(
+            "import sys\n"
+            "print('{\"type\":\"error\",\"message\":\"is not supported when "
+            "using Codex with a ChatGPT account\"}')\n"
+            "sys.exit(1)\n"
+        )
+        with self.assertRaises(ModelUnavailable):
+            run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md",
+                fallback=False)
+
+    def test_successful_first_attempt_is_not_marked_as_fallback(self):
+        stub = self._stub(
+            "import sys\n"
+            "argv = sys.argv\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('OK')\n"
+        )
+        result = run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertFalse(result.fell_back)
+        self.assertEqual(result.model, MODEL)
+
+    def test_transport_failure_does_not_advance_the_chain(self):
+        # Only ModelUnavailable may retry. Retrying a real failure would cost
+        # quota and would not help.
+        counter = self.dir / "attempts"
+        stub = self._stub(
+            "import sys, pathlib\n"
+            "p = pathlib.Path('" + str(counter) + "')\n"
+            "p.write_text(str(int(p.read_text()) + 1) if p.exists() else '1')\n"
+            "sys.stderr.write('connection reset\\n')\n"
+            "sys.exit(1)\n"
+        )
+        with self.assertRaises(AskGptError):
+            run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertEqual(counter.read_text(), "1")
 
     def test_quota_exhaustion_is_reported_plainly(self):
         stub = self._stub(

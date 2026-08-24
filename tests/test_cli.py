@@ -288,6 +288,54 @@ class PlumbingTest(CliTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_fallback_substitution_is_announced_unmissably(self):
+        # A weaker model's opinion must never be mistaken for the pinned one.
+        repo = self.make_repo()
+        path = self.root / "codex-rejects-sol"
+        path.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "argv = sys.argv\n"
+            "if 'login' in argv:\n"
+            "    print('Logged in using ChatGPT')\n"
+            "    sys.exit(0)\n"
+            "if 'gpt-5.6-sol' in argv:\n"
+            "    print('{\"type\":\"error\",\"message\":\"is not supported when "
+            "using Codex with a ChatGPT account\"}')\n"
+            "    sys.exit(1)\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('FALLBACK BODY')\n"
+        )
+        path.chmod(0o755)
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=str(path)),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("FALLBACK BODY", result.stdout)
+        self.assertIn("weaker model", result.stderr)
+        self.assertIn("gpt-5.6-terra", result.stderr)
+
+    def test_no_fallback_flag_restores_failure(self):
+        repo = self.make_repo()
+        path = self.root / "codex-rejects-all"
+        path.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "argv = sys.argv\n"
+            "if 'login' in argv:\n"
+            "    print('Logged in using ChatGPT')\n"
+            "    sys.exit(0)\n"
+            "print('{\"type\":\"error\",\"message\":\"is not supported when "
+            "using Codex with a ChatGPT account\"}')\n"
+            "sys.exit(1)\n"
+        )
+        path.chmod(0o755)
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T", "--no-fallback",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=str(path)),
+        )
+        self.assertNotEqual(result.returncode, 0)
+
     def test_overridden_model_is_announced(self):
         repo = self.make_repo()
         result = run_cli(

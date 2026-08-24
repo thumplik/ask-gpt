@@ -60,7 +60,8 @@ exists so a future reader can tell which claims were tested.
 | Form factor | Skill + slash commands, **CLI only** | MCP cut from v1: a third execution path that routes payloads through Claude's context and duplicates `resume` |
 | Codex primitive | `codex exec` for **both** paths | `codex review` cannot take a custom prompt alongside a target flag, and cannot pin a model |
 | Response handling | Relay verbatim, then rebut point by point | User sees both sides; nothing changes without their word |
-| Model | Pin `gpt-5.6-sol` + `--ignore-user-config`; **fail closed** | Config default is invalid; never silently downgrade to Terra — asking Sol is the entire point |
+| Model | Pin `gpt-5.6-sol` + `--ignore-user-config`; **fall back, loudly** | Reversed after the build, by the repo owner's decision. Originally fail-closed on the reasoning that a weaker model's opinion is not the review requested. The owner preferred always getting an answer, so an unavailable Sol now falls through to Terra — with an unmissable notice naming the substitute, and `--no-fallback` to restore the original behaviour. The objection was never to downgrading; it was to downgrading *silently* |
+| Model retry | Only `ModelUnavailable` advances the chain | An unavailable slug is rejected with HTTP 400 before inference, so it costs no quota. Quota, transport and auth failures still stop at the first attempt |
 | Session continuity | Capture exact `thread_id`; never `--last` | `--last` can attach a follow-up to an unrelated Codex session |
 | Visibility | Public from the first commit | Build in the open |
 
