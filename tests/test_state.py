@@ -101,6 +101,27 @@ class ArchiveResponseTest(unittest.TestCase):
         kept = list((self.dir / "responses").glob("*.md"))
         self.assertLessEqual(len(kept), 50)
 
+    def test_pruning_counts_responses_and_keeps_pairs_intact(self):
+        # Payload sidecars share the .md suffix. Counting them as archives
+        # halves the retention window and can delete one half of a pair,
+        # leaving a response whose payload -- the audit record -- is gone.
+        for i in range(60):
+            archive_response(self.dir, "s", "t", "body " + str(i),
+                             payload="payload " + str(i))
+        directory = self.dir / "responses"
+        responses = [p for p in directory.glob("*.md")
+                     if not p.name.endswith(".payload.md")]
+        self.assertEqual(len(responses), 50)
+        for response in responses:
+            self.assertTrue(
+                response.with_suffix(".payload.md").is_file(),
+                "response kept without its payload: " + response.name,
+            )
+        # And no orphans: a pruned response must take its payload with it,
+        # or sidecars accumulate without bound while responses are capped.
+        sidecars = list(directory.glob("*.payload.md"))
+        self.assertEqual(len(sidecars), len(responses))
+
     def test_payload_snapshot_is_stored_alongside(self):
         # Auditability: once the ledger changes, the snapshot is the only
         # record of which accepted-risks block influenced a given review.

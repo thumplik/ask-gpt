@@ -91,19 +91,24 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
             handle.write(payload.encode("utf-8"))
 
     _prune(directory)
-    _prune(directory.parent / "responses", keep=MAX_ARCHIVED_RESPONSES)
     return path, digest, len(raw)
 
 
 def _prune(directory, keep=MAX_ARCHIVED_RESPONSES):
     try:
+        # Count RESPONSES only. Payload sidecars share the .md suffix, so
+        # globbing blindly halves the retention window and can delete one
+        # half of a pair, leaving a response whose payload is gone.
         files = sorted(
-            directory.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True
+            (p for p in directory.glob("*.md") if not p.name.endswith(".payload.md")),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
         )
     except OSError:
         return
     for stale in files[keep:]:
-        try:
-            stale.unlink()
-        except OSError:
-            pass
+        for target in (stale, stale.with_suffix(".payload.md")):
+            try:
+                target.unlink()
+            except OSError:
+                pass
