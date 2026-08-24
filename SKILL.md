@@ -22,8 +22,10 @@ tool; the commands below are what actually run.
 - `/askgpt <question>` — a general question with the session dialogue attached.
 - `/gptfollow <pushback>` — continue the same thread to argue with a finding.
 
-Run `askgpt usage` to report remaining plan quota. It reads a local file and makes no
-network call, so it never consumes the allowance it reports.
+Run `askgpt usage` for a best-effort snapshot of plan usage. It reads a local Codex
+session record and makes no network call, so it never consumes the allowance it reports.
+Report it as usage so far, never as remaining allowance -- it covers one window and may
+miss other allowances or credit pools. Codex's own `/status` is authoritative.
 
 ## When to stop
 

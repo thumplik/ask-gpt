@@ -104,6 +104,25 @@ done
 "$ASKGPT_BIN_DIR/askgpt" usage >"$WORK/u.out" 2>"$WORK/u.err"
 check "$([ $? -eq 0 ] && echo true || echo false)" "usage runs"
 
+echo "6. no overstated claims in user-facing text"
+# Every one of these was true of an earlier design and became false when the
+# design changed. Documentation drift is the failure mode this project hits
+# most often, so the retired phrasings are asserted absent rather than trusted
+# to stay gone.
+STALE='quota is left|remaining plan quota|exactly what would leave|nothing is modified on disk|no other dependencies|fails closed rather than'
+if grep -rniE "$STALE" "$REPO/README.md" "$REPO/SKILL.md" "$REPO/commands/" >/dev/null 2>&1; then
+  no "user-facing text free of retired claims" \
+     "$(grep -rniE "$STALE" "$REPO/README.md" "$REPO/SKILL.md" "$REPO/commands/" | head -3)"
+else
+  ok "user-facing text free of retired claims"
+fi
+# The strong claim must never appear without its qualifier nearby.
+if grep -n "independent review" "$REPO/README.md" | grep -viE "not an independent|transcript-blind" >/dev/null 2>&1; then
+  no "no unqualified 'independent review' claim"
+else
+  ok "no unqualified 'independent review' claim"
+fi
+
 echo
 echo "acceptance: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

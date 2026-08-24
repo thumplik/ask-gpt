@@ -180,7 +180,7 @@ install is symlinks, not copies.
 | `/gptreview` | Adversarial review of your branch or working tree |
 | `/askgpt <question>` | A question, with your recent conversation attached |
 | `/gptfollow <pushback>` | Continue the same thread to argue with a finding |
-| `/gptusage` | Remaining plan quota. Costs nothing |
+| `/gptusage` | Best-effort plan usage so far. Costs nothing |
 | `askgpt …` | The same thing from a terminal — the installer puts it on your PATH |
 
 There is also a **skill** named `second-opinion`. It is not a command; it is context that
@@ -254,8 +254,9 @@ missing context does not.
 
 There is also `askgpt usage`, which takes no flags and makes no network call.
 
-**Start with `--dry-run` the first time.** It shows you exactly what would leave your
-machine and costs nothing.
+**Start with `--dry-run` the first time.** It shows the initial payload ask-gpt will
+send, and costs nothing. It is not a complete disclosure list: a live Codex run may
+subsequently read and transmit additional context.
 
 ### If the pinned model is unavailable
 
@@ -277,7 +278,7 @@ quota, transport and auth failures still stop at the first attempt, because retr
 those would spend real quota and would not help. Trying another model costs nothing: an
 unavailable slug is rejected before inference.
 
-### Checking how much quota you have left
+### Checking your plan usage
 
 ```
 /gptusage
