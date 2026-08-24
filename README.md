@@ -1,7 +1,9 @@
 # ask-gpt
 
-Ask GPT from inside Claude Code. Adversarial code review and second opinions through
-your existing ChatGPT subscription — no API key, no second bill.
+Ask GPT from inside Claude Code. Adversarial code review and second opinions using the
+Codex access included with your ChatGPT plan — no API key required.
+
+(Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
 > **Status: design stage.** The spec is complete and the underlying plumbing is
 > verified working, but the commands are not built yet. See
@@ -9,8 +11,16 @@ your existing ChatGPT subscription — no API key, no second bill.
 
 ## Privacy — read this first
 
-The `askgpt` command **uploads your Claude Code conversation to OpenAI.** Conversations
-contain more than people picture: file contents, paths, and anything that was pasted in.
+**Two separate exposures, worth understanding before you run this.**
+
+**Your conversation.** `askgpt` uploads your Claude Code dialogue to OpenAI.
+Conversations contain more than people picture: file contents, paths, and anything that
+was pasted in.
+
+**Your repository.** Both commands let Codex read your working tree. **`read-only` means
+Codex cannot *modify* your repo — it does not mean Codex cannot *read* it.** Gitignored
+files, `.env`, local credentials, and test fixtures are all readable. A preflight warns
+on obvious sensitive files, but treat the whole working tree as in scope.
 
 Protections built in:
 
@@ -18,8 +28,10 @@ Protections built in:
 - `--dry-run` builds the payload and sends nothing.
 - A secret scan (`sk-`, `ghp_`, `AKIA`, bearer tokens) **halts and asks** on a hit
   rather than scrubbing silently.
+- Payloads and responses live in a `0700` directory as `0600` files, deleted after each
+  run unless you pass `--keep`.
 
-The `gptreview` command sends your code and diff, not your conversation.
+`gptreview` sends your code, not your conversation.
 
 ## The problem
 
@@ -51,7 +63,9 @@ Two entry points over one shared layer:
   original task and the code, but *not* Claude's account of what it did. A reviewer that
   has read the defendant's summary is not an independent reviewer.
 - **`/askgpt <question>`** — a general second opinion, with the recent conversation
-  attached verbatim.
+  attached. Dialogue is passed through word for word; tool payloads are omitted, apart
+  from failed command output, which is kept within a size cap because it is usually the
+  most useful evidence in a debugging session.
 
 Claude relays GPT's answer word for word, then says which findings it agrees with,
 which it thinks are wrong and why, and which need checking. Nothing gets changed
@@ -77,6 +91,12 @@ A few findings from building this, verified rather than assumed:
   system-reminder blocks are dropped, which is what makes sending it verbatim practical.
 - No environment variable exposes the Claude session id;
   `CLAUDE_CODE_HOST_SESSION_ID` is a different identifier.
+- `codex review` looks purpose-built for this and is not usable: its `--base` /
+  `--commit` / `--uncommitted` flags are mutually exclusive with a custom prompt, and it
+  exposes no `-m`, so it cannot pin a model. Both paths use `codex exec` instead.
+- `codex exec resume` takes no `--sandbox` of its own — the flag must precede the
+  subcommand. Thread ids come from the `--json` stream and are resumed explicitly;
+  `--last` is never used, since it can attach to an unrelated Codex session.
 
 Full detail in the [design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md).
 

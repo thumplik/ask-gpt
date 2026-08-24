@@ -36,6 +36,13 @@ exists so a future reader can tell which claims were tested.
 | MCP tools | `codex`, `codex-reply` | stdio JSON-RPC `tools/list` probe |
 | `codex` tool params | `prompt`, `model`, `sandbox`, `approval-policy`, `base-instructions`, `developer-instructions`, `cwd`, `config`, `compact-prompt` | same probe |
 | `codex-reply` params | `threadId`, `conversationId`, `prompt` | same probe |
+| `codex review` + target flag + prompt | **Mutually exclusive** | `error: the argument '--uncommitted' cannot be used with '[PROMPT]'`; same for `--base` |
+| `codex review` model pinning | **Impossible** — no `-m` flag | `--help`; would silently use the invalid config default |
+| Sol tools under `-s read-only` | **Working** | live call ran `git status --porcelain` and read a file |
+| `exec resume` sandbox flag | Must precede `resume` | `codex exec resume --last -s read-only` → `unexpected argument '-s'`; `codex exec -s read-only resume <id>` works |
+| Thread-id capture | `--json` line 1: `{"type":"thread.started","thread_id":"..."}` | live call |
+| Thread continuity by exact id | Verified | resumed session correctly recalled the prior message |
+| `--ignore-user-config` | Works; auth still resolves | live call |
 | Session-id env var | **Does not exist** | `CLAUDE_CODE_HOST_SESSION_ID` ≠ transcript filename |
 | Transcript reduction | 238 KB → 17 KB (~4.3k tokens, 30 turns) | prototype extraction |
 | Largest local transcripts | 11–22 MB | `find` over `~/.claude/projects` |
@@ -50,9 +57,11 @@ exists so a future reader can tell which claims were tested.
 | Scope | Both a general ask and a dedicated review | Shares one context-packaging layer and one persona file |
 | Review context | Task + diff, **no Claude narration** | Claude summarising its own work anchors the reviewer; independence is the point |
 | Ask context | **Verbatim** transcript, filtered and capped | No self-serving summary; measured cheap enough to be practical |
-| Form factor | Skill + slash commands + MCP server | User chose the full set |
+| Form factor | Skill + slash commands, **CLI only** | MCP cut from v1: a third execution path that routes payloads through Claude's context and duplicates `resume` |
+| Codex primitive | `codex exec` for **both** paths | `codex review` cannot take a custom prompt alongside a target flag, and cannot pin a model |
 | Response handling | Relay verbatim, then rebut point by point | User sees both sides; nothing changes without their word |
-| Model | Pin `gpt-5.6-sol`, `--model` overrides | Config default is invalid, so inheriting it would break |
+| Model | Pin `gpt-5.6-sol` + `--ignore-user-config`; **fail closed** | Config default is invalid; never silently downgrade to Terra — asking Sol is the entire point |
+| Session continuity | Capture exact `thread_id`; never `--last` | `--last` can attach a follow-up to an unrelated Codex session |
 | Visibility | Public from the first commit | Build in the open |
 
 ## 4. Architecture
@@ -83,7 +92,7 @@ tool is available in every project and edits apply in one place.
 ```
 ask-gpt/
 |-- SKILL.md                        # when to reach for this; how to read results
-|-- install.sh                      # symlinks + MCP registration
+|-- install.sh                      # symlinks
 |-- commands/askgpt.md
 |-- commands/gptreview.md
 |-- prompts/adversarial-review.md
@@ -113,13 +122,22 @@ run `codex login` themselves. The tool never drives an auth flow.
 
 ### 6.2 `bin/pack-transcript.py`
 
-The piece that replaces copy-paste. Pure function, therefore the only unit-tested
+The piece that replaces copy-paste. Pure function, therefore the most heavily unit-tested
 component.
+
+**Terminology.** This produces a *filtered* transcript, not a verbatim one: human and
+assistant dialogue is preserved word for word, tool payloads are omitted. Docs must say
+"dialogue verbatim, tool payloads omitted" — calling the artefact "the verbatim
+transcript" overstates what is sent.
 
 - Keep records of type `user` and `assistant`; drop everything else.
 - Keep `text` blocks. Collapse `tool_use` to a one-line `[tool: Bash]` marker.
-- Drop `tool_result` payloads and `<system-reminder>` blocks entirely — this is where
-  the 93% size reduction comes from.
+- Drop `<system-reminder>` blocks entirely.
+- Drop **successful** `tool_result` payloads — this is where the 93% size reduction comes
+  from. **Retain failed ones** (non-zero exit / error), capped at 3 KB each and 12 KB
+  total, oldest dropped first. When Claude has spent an hour chasing a compiler error,
+  the failure output is the single most valuable evidence in the session; dropping every
+  tool result throws away exactly the part a reviewer needs.
 - Accumulate newest-first against a character budget (default 60,000). On truncation,
   prepend `[earlier turns omitted]`.
 - Drop the trailing turn that invoked the command, so GPT does not read "user asked to
@@ -152,67 +170,79 @@ The reviewer persona. Substance:
 
 ## 7. Command surface
 
+Both paths use one primitive, `codex exec`. `codex review` is **not** used: its target
+flags (`--base`, `--commit`, `--uncommitted`) are mutually exclusive with a custom
+`[PROMPT]` at argument-parse time, so the adversarial persona cannot be combined with
+target selection; and it exposes no `-m`, so it cannot pin a model and would fall through
+to the invalid config default. Both verified in §2.
+
+Shared invocation:
+
+```
+codex exec -m gpt-5.6-sol -s read-only --ignore-user-config --json -o out.md - < payload.md
+```
+
+`--ignore-user-config` makes the reviewer reproducible: it skips `~/.codex/config.toml`
+(including its invalid model default and any unrelated user-level MCP servers or
+policies) while `CODEX_HOME` still resolves authentication. If `gpt-5.6-sol` is
+unavailable the command **fails closed** — it never downgrades to `gpt-5.6-terra`,
+because obtaining Sol's judgement is the entire purpose.
+
 ### `/gptreview [--base <branch> | --uncommitted | --commit <sha>]`
 
-```
-codex review --base <branch> - < payload.md
-```
+Target selection happens locally, in the prompt, not via Codex flags. The command
+resolves the target, generates the git context, and instructs Sol which range to inspect.
+Auto-detection: on a non-default branch, diff against the default branch; otherwise
+review uncommitted work. Codex reads the working tree directly under `read-only`, so it
+inspects real files rather than a pre-rendered diff.
 
-Target auto-detection: on a non-default branch, `--base <default-branch>`; otherwise
-`--uncommitted`. Payload is the persona plus a `<TASK>` block holding the **user's own
+Payload is the adversarial persona plus a `<TASK>` block containing the **user's own
 words, never a Claude summary**.
 
-Resolving the task statement, in order:
+**Task resolution, in order:**
 
-1. An explicit `--task "<text>"` or `--task-file <path>`.
-2. A spec file in `docs/superpowers/specs/` matching the current branch, if one exists.
-3. The first user message of the session.
+1. Explicit `--task "<text>"` or `--task-file <path>`.
+2. A spec file under `docs/superpowers/specs/` matching the current branch.
+3. **No authoritative task.** The prompt then states plainly that the original
+   requirement is unknown and asks for review on correctness, regressions, security, and
+   maintainability only.
 
-Rule 3 is only correct for a session covering a single task; in a long session spanning
-several, it resolves to the wrong one. When the command falls back to rule 3 it prints
-the task statement it selected, so a wrong pick is visible before the review runs rather
-than after. `codex review` exposes no sandbox flag, so it cannot edit files.
+There is deliberately no "first user message of the session" fallback. In precisely the
+long, multi-task sessions this tool is built for, that heuristic confidently supplies the
+*wrong* assignment — and a reviewer working from a wrong requirement produces confident,
+misdirected findings. Missing context is recoverable; wrong context is not.
 
 ### `/askgpt <question>`
 
-```
-codex exec -s read-only --skip-git-repo-check -m gpt-5.6-sol -o out.md - < payload.md
-```
+Same runner, with the filtered conversation added to the payload.
 
-Payload is the question, the packed verbatim transcript, and a repo pointer.
-`-s read-only` is explicit because `exec`, unlike `review`, can write.
+### Follow-ups
 
-### `/askgpt --follow <text>`
-
-```
-codex exec resume --last -s read-only - < followup.md
-```
-
-The argue-back loop.
-
-## 8. MCP path
-
-Registered by `install.sh` using the resolved binary path:
+The first call captures the thread id from the `--json` stream
+(`{"type":"thread.started","thread_id":"..."}`, first line) and stores it alongside the
+Claude session id. Follow-ups resume that exact thread:
 
 ```
-claude mcp add codex -- <resolved-codex> mcp-server
+codex exec -m gpt-5.6-sol -s read-only --ignore-user-config resume <THREAD_ID> - < followup.md
 ```
 
-Exposes `codex` and `codex-reply` (verified in §2).
+`--last` is never used: with another Codex session open, a second Claude window, or a
+concurrent review in another repo, it can attach the follow-up to an unrelated
+conversation. Flag placement is load-bearing and verified — `resume` accepts no
+`--sandbox` of its own, so the sandbox flag must precede the subcommand.
 
-**When to use which path.** The `prompt` parameter is a plain string, so MCP *can*
-carry a verbatim transcript — but the payload must pass through Claude's context to get
-there, whereas the CLI pipes it from disk directly into Codex. On a 60k-character
-payload that is roughly 15k tokens of context window per call.
+## 8. Deferred: MCP server
 
-Therefore:
+Cut from v1. Codex does expose `codex` and `codex-reply` over stdio MCP (§2), so this is
+a scoping decision rather than a limitation.
 
-- **Heavy first-shot payloads → CLI.** Transcript and diff never enter Claude's context.
-- **Follow-up debate on an established thread → MCP.** Context already lives server-side
-  behind `threadId`; the marginal prompt is short, and native tool calls avoid a Bash
-  round-trip.
+The reasoning: MCP adds a third execution path with its own lifecycle and thread
+bookkeeping, and its `prompt` parameter must be populated from Claude's context — meaning
+a payload that the CLI streams from disk instead consumes context window, roughly 15k
+tokens for a full transcript. Its one genuine advantage, threaded follow-up, disappears
+once exact thread ids are captured, since CLI `resume` then does the same job.
 
-Defaults are wired accordingly. This is a documented trade-off, not a limitation.
+Revisit only if a concrete workflow emerges that the CLI cannot serve.
 
 ## 9. Response handling
 
@@ -227,16 +257,42 @@ this", "delete that"), they are surfaced to the user, never executed.
 
 ## 10. Privacy
 
-The ask path uploads conversation content to OpenAI, and conversations contain more
-than users picture — file contents, paths, pasted material. Mitigations:
+Two distinct exposure surfaces, previously conflated.
 
-- Payload is always written to disk before sending, so it can be inspected.
-- `--dry-run` on both commands builds the payload and sends nothing.
-- The secret scan halts on a hit rather than scrubbing.
-- The README states this above the fold.
+### 10.1 Conversation (the `askgpt` path)
 
-Absent a scan hit, sending proceeds without an extra prompt: the goal was to remove
+Uploads conversation content to OpenAI, which contains more than users picture — file
+contents, paths, pasted material.
+
+- Payload written to disk before sending, so it can be inspected.
+- `--dry-run` builds the payload and sends nothing.
+- Secret scan (`sk-`, `ghp_`, `AKIA`, bearer tokens) **halts and asks** on a hit rather
+  than scrubbing, because silent scrubbing teaches false confidence.
+
+Absent a scan hit, sending proceeds without an extra prompt: the goal is to remove
 friction, not relocate it.
+
+### 10.2 Repository (both paths)
+
+Codex reads the working tree directly. **`read-only` means Codex cannot modify the repo;
+it does not mean Codex cannot read it.** So `.env` files, gitignored config, test
+fixtures with real credentials, and local key material are all in scope even when they
+never appear in `payload.md`. The README states this explicitly — the phrase "read-only
+sandbox" otherwise reads as a confidentiality guarantee, which it is not.
+
+Preflight scans the review target for obvious sensitive files (`.env*`, `*.pem`,
+`id_rsa*`, `*.p12`, `credentials.json`, `.npmrc`, `.netrc`) and warns before dispatch.
+
+**Not shipping an `.askgptignore`.** It was considered and rejected: Codex explores the
+repository through its own sandbox, which has no per-file exclusion mechanism, so such a
+file could only *request* that Codex skip a path. An advisory boundary that presents as
+enforcement is worse than no boundary, because it invites reliance. Revisit if Codex
+gains real path exclusion.
+
+### 10.3 Artefacts on disk
+
+Payload and response files are written to a `0700` directory with `0600` files, and
+removed after the run unless `--keep` is passed.
 
 ## 11. Error handling
 
@@ -257,7 +313,15 @@ friction, not relocate it.
   stripping, secret detection, session resolution and its fallback.
 - `codex-path.sh` — resolution-order tests using a stub binary on `PATH`.
 - Both commands — `--dry-run` against real transcripts, no network.
-- One live smoke test per command, run manually.
+- **Read-only tool regression test** (live, manual): confirm Sol under `-s read-only` can
+  still run `git status --porcelain` and read a file. This was broken in Codex in July
+  2025 (openai/codex#31843), where `read-only` left Sol with no tools while
+  `workspace-write` worked. It is fixed on `0.148.0-alpha.9` (§2), but the failure is
+  silent and would gut the tool, so it is worth a standing check after Codex upgrades.
+- **Model fail-closed test**: with `gpt-5.6-sol` forced unavailable, the command must
+  error rather than fall back to `gpt-5.6-terra`.
+- **Thread-id test**: capture from `--json`, resume by exact id, assert continuity;
+  assert `--last` is never invoked.
 
 ## 13. Out of scope
 
@@ -265,3 +329,5 @@ friction, not relocate it.
 - Automatic application of GPT's suggestions.
 - Reviewers other than Codex/GPT.
 - CI integration.
+- MCP server (see §8 — deferred, not rejected).
+- `.askgptignore` (see §10.2 — unenforceable today).
