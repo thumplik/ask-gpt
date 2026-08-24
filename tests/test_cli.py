@@ -423,6 +423,17 @@ class LedgerCliTest(CliTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("billing.py", result.stdout)
 
+    def test_accept_without_session_or_description_is_refused(self):
+        # Global archive search without a session id is the cross-project bug.
+        # No session id and no description -> refuse rather than resolve globally.
+        repo = self.make_repo(dirty=False)
+        archives = self.root / "state" / "responses"
+        archives.mkdir(parents=True, exist_ok=True)
+        (archives / "othersession-t-a.md").write_text("F2: other/project.py:1 thing")
+        result = run_cli("accept", "F2", "reason", "--cwd", str(repo), env=self.env())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("description", result.stderr.lower())
+
     def test_accept_resolves_from_this_sessions_review(self):
         repo = self.make_repo(dirty=False)
         archives = self.root / "state" / "responses"

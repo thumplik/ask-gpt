@@ -35,8 +35,10 @@ class StateTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_corrupt_state_is_treated_as_empty(self):
+        from askgpt.state import _session_file
+
         save_thread(self.dir, "claude-1", "thread-a")
-        (self.dir / "threads" / "claude-1.json").write_text("{ not json")
+        _session_file(self.dir, "claude-1").write_text("{ not json")
         self.assertIsNone(load_thread(self.dir, "claude-1"))
 
     def test_session_id_cannot_escape_the_state_directory(self):
@@ -46,6 +48,16 @@ class StateTest(unittest.TestCase):
         self.assertEqual(path.parent, self.dir / "threads")
         self.assertNotIn("/", path.name.replace(".json", ""))
         self.assertEqual(load_thread(self.dir, "../../evil"), "t")
+
+    def test_distinct_ids_that_sanitise_alike_do_not_collide(self):
+        # "a/b", "a?b" and "a:b" all sanitise to "a_b"; without the hash they
+        # would share one file and resume each other's threads.
+        save_thread(self.dir, "a/b", "thread-slash")
+        save_thread(self.dir, "a?b", "thread-query")
+        save_thread(self.dir, "a:b", "thread-colon")
+        self.assertEqual(load_thread(self.dir, "a/b"), "thread-slash")
+        self.assertEqual(load_thread(self.dir, "a?b"), "thread-query")
+        self.assertEqual(load_thread(self.dir, "a:b"), "thread-colon")
 
     def test_concurrent_writers_do_not_lose_sessions(self):
         import threading
@@ -121,6 +133,14 @@ class ArchiveResponseTest(unittest.TestCase):
         # or sidecars accumulate without bound while responses are capped.
         sidecars = list(directory.glob("*.payload.md"))
         self.assertEqual(len(sidecars), len(responses))
+
+    def test_same_response_different_payload_does_not_overwrite(self):
+        # Folding the payload into the archive identity keeps two runs with
+        # identical response text but different payloads as separate records.
+        a, _, _ = archive_response(self.dir, "s", "t", "SAME", payload="payload one")
+        b, _, _ = archive_response(self.dir, "s", "t", "SAME", payload="payload two")
+        self.assertNotEqual(a, b)
+        self.assertTrue(a.is_file() and b.is_file())
 
     def test_payload_snapshot_is_stored_alongside(self):
         # Auditability: once the ledger changes, the snapshot is the only

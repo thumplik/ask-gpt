@@ -87,6 +87,17 @@ class ScanTest(unittest.TestCase):
         self.assertEqual(scan("the password field is validated on submit"), [])
         self.assertEqual(scan("if user_token == expected: pass"), [])
 
+    def test_scan_is_linear_on_long_runs_no_redos(self):
+        # A long alphanumeric run with no closing quote made the
+        # assigned-credential pattern backtrack quadratically and hang the
+        # whole content preflight. This asserts it stays fast.
+        import time
+
+        payload = "api_key = \"" + "a" * 200000
+        start = time.time()
+        scan(payload)
+        self.assertLess(time.time() - start, 1.0)
+
     def test_clean_text_yields_nothing(self):
         self.assertEqual(scan("def add(a, b):\n    return a + b\n"), [])
 

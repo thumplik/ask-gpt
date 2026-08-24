@@ -9,6 +9,11 @@ import json
 import re
 from pathlib import Path
 
+# A Claude session id is a bare identifier. Anything with a separator is either
+# a mistake or a traversal attempt (../../secret selects a file outside the
+# project dir, whose contents would then be packed into the outbound payload).
+_SAFE_SESSION = re.compile(r"^[A-Za-z0-9._-]+$")
+
 from .errors import TranscriptNotFound
 
 REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
@@ -48,7 +53,15 @@ def resolve_session(project_dir, session_id):
     """
     project_dir = Path(project_dir)
     if session_id:
+        if not _SAFE_SESSION.match(str(session_id)):
+            raise TranscriptNotFound(
+                "Invalid session id: " + repr(session_id) + ". Expected a bare "
+                "identifier (letters, digits, dot, dash, underscore)."
+            )
         candidate = project_dir / (session_id + ".jsonl")
+        # Belt and braces: confirm the resolved path stays inside project_dir.
+        if project_dir.resolve() not in candidate.resolve().parents:
+            raise TranscriptNotFound("Session id escapes the project directory.")
         if candidate.is_file():
             return candidate
         raise TranscriptNotFound("No transcript at " + str(candidate))

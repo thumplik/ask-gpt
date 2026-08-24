@@ -159,6 +159,15 @@ class ResolveSessionTest(unittest.TestCase):
         with self.assertRaises(TranscriptNotFound):
             resolve_session(self.dir, None)
 
+    def test_rejects_a_session_id_with_separators(self):
+        (self.dir / "real.jsonl").write_text("{}\n")
+        with self.assertRaises(TranscriptNotFound):
+            resolve_session(self.dir, "../../etc/passwd")
+
+    def test_rejects_a_traversal_that_would_escape(self):
+        with self.assertRaises(TranscriptNotFound):
+            resolve_session(self.dir, "..")
+
     def test_raises_when_named_session_is_absent(self):
         with self.assertRaises(TranscriptNotFound):
             resolve_session(self.dir, "missing")

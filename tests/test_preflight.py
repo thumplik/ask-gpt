@@ -3,7 +3,10 @@ import unittest
 from pathlib import Path
 
 from askgpt.preflight import (
+    coverage_is_partial,
+    external_symlinks,
     format_content_warning,
+    format_external_symlinks,
     format_warning,
     scan_contents,
     scan_tree,
@@ -78,6 +81,26 @@ class ScanTreeTest(unittest.TestCase):
         message = format_warning(scan_tree(self.root))
         self.assertIn("deploy/server.pem", message)
         self.assertIn("read", message.lower())
+
+
+class ExternalSymlinkTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "repo"
+        self.root.mkdir()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_flags_a_symlink_pointing_outside_the_repo(self):
+        outside = Path(self.tmp.name) / "secret.txt"
+        outside.write_text("k")
+        (self.root / "config").symlink_to(outside)
+        hits = external_symlinks(self.root)
+        self.assertEqual([str(l) for l, _ in hits], ["config"])
+
+    def test_ignores_a_symlink_pointing_inside_the_repo(self):
+        (self.root / "real.py").write_text("x")
+        (self.root / "link.py").symlink_to(self.root / "real.py")
+        self.assertEqual(external_symlinks(self.root), [])
 
 
 class ScanContentsTest(unittest.TestCase):

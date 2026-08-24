@@ -26,8 +26,14 @@ MAX_ARCHIVED_RESPONSES = 50
 
 
 def _session_file(state_dir, claude_session):
-    name = UNSAFE.sub("_", str(claude_session)) or "unnamed"
-    return Path(state_dir) / "threads" / (name + ".json")
+    # A readable name PLUS a hash of the ORIGINAL id. Lossy replacement alone
+    # aliases distinct sessions -- "a/b", "a?b" and "a:b" all become "a_b" --
+    # so one session could resume another's thread, the exact failure the
+    # per-session design exists to prevent. The hash disambiguates them.
+    raw = str(claude_session)
+    readable = UNSAFE.sub("_", raw) or "unnamed"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+    return Path(state_dir) / "threads" / (readable + "-" + digest + ".json")
 
 
 def save_thread(state_dir, claude_session, thread_id):
@@ -63,6 +69,11 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
     failure checkable instead of invisible.
     """
     raw = text.encode("utf-8")
+    # Fold the payload into the identity. Two runs in one thread can produce
+    # identical response TEXT from different code or payloads; keying on the
+    # response alone made the second overwrite the first, destroying the audit
+    # record of which payload influenced which response.
+    identity = hashlib.sha256(raw + b"\x00" + (payload or "").encode("utf-8")).hexdigest()[:12]
     digest = hashlib.sha256(raw).hexdigest()[:12]
 
     directory = Path(state_dir) / "responses"

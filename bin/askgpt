@@ -140,9 +140,21 @@ def dispatch(args, payload, resume_thread=None):
         # `.env` and `*.pem`; content catches a live key pasted into an
         # ordinary source file, which Codex reads just as happily and which
         # filename matching cannot see.
+        external = preflight.external_symlinks(root)
+        if external and not args.allow_sensitive_files:
+            raise AskGptError(preflight.format_external_symlinks(external))
+
         content_hits = preflight.scan_contents(root)
         if content_hits and not args.allow_sensitive_files:
             raise AskGptError(preflight.format_content_warning(content_hits))
+
+        if preflight.coverage_is_partial(root):
+            # An incomplete scan must not read as a clean one.
+            print(
+                "note: the sensitive-file scan was incomplete (too many or "
+                "too-large files);\n      it is a check, not a guarantee.",
+                file=sys.stderr,
+            )
 
         hits = preflight.scan_tree(root)
         if hits and not args.allow_sensitive_files:
@@ -307,6 +319,12 @@ def _finding_from_archive(finding_id, session_id=None):
     repository using a review of a different one -- recording a disposition
     against a finding that was never reported here.
     """
+    if not session_id:
+        # No session id means no way to scope to THIS review. Archives are
+        # global, so a bare search would resolve a finding from another
+        # project. Resolve nothing and let the caller demand --description
+        # rather than silently borrowing an unrelated review's text.
+        return ""
     directory = state_dir() / "responses"
     if not directory.is_dir():
         return ""
@@ -314,11 +332,10 @@ def _finding_from_archive(finding_id, session_id=None):
     # blindly can resolve a finding's text out of a PAYLOAD -- which contains
     # the previous ledger block, not the review that raised the finding.
     candidates = [
-        p for p in directory.glob("*.md") if not p.name.endswith(".payload.md")
+        p for p in directory.glob("*.md")
+        if not p.name.endswith(".payload.md")
+        and p.name.startswith(str(session_id) + "-")
     ]
-    if session_id:
-        scoped = [p for p in candidates if p.name.startswith(str(session_id) + "-")]
-        candidates = scoped or []   # no archive for this session: resolve nothing
     for path in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
         try:
             text = path.read_text(encoding="utf-8")
