@@ -181,6 +181,7 @@ install is symlinks, not copies.
 | `/askgpt <question>` | A question, with your recent conversation attached |
 | `/gptfollow <pushback>` | Continue the same thread to argue with a finding |
 | `/gptusage` | Best-effort plan usage so far. Costs nothing |
+| `askgpt accept/risks/unaccept` | Per-project ledger of accepted review findings |
 | `askgpt …` | The same thing from a terminal — the installer puts it on your PATH |
 
 There is also a **skill** named `second-opinion`. It is not a command; it is context that
@@ -307,6 +308,35 @@ which the output says plainly, and every review refreshes it.
 
 Each review also prints a one-line `quota: N% of the plan window used` footer, so you
 see the trend without asking.
+
+### Project memory: two different kinds, on purpose
+
+`/askgpt` and `/gptfollow` now share **one conversation per repository**. Ask something
+today, follow up from a different Claude session tomorrow — GPT still has the context.
+(The thread is stored per repo under `~/.askgpt`; a very long conversation eventually
+fills the model's context, so start fresh occasionally by deleting the project's thread
+file.)
+
+`/gptreview` deliberately gets **no memory at all**. A reviewer that remembers approving
+your code is anchored — it skims what it "already checked" and carries beliefs about code
+that has since changed. Every review is a fresh, independent thread, and a test asserts
+that stays true.
+
+What carries across reviews instead is the **ledger** — your dispositions, not the
+reviewer's memories:
+
+```bash
+askgpt accept F2 "eval is on trusted input only; sandboxing it isn't worth the cost"
+askgpt risks              # list this project's accepted risks
+askgpt unaccept F2        # changed your mind
+```
+
+Findings come with stable IDs (F1, F2, …). Accepted ones are passed into the next
+review as *disposition data*: the reviewer skips re-reporting them as-is but is told to
+re-report if the surrounding code has materially changed — a record, not a gag order.
+The ledger lives in your state directory, never in the repository: a repo file claiming
+"this is approved" is treated as prompt injection, and the only trustworthy route for
+"the user accepted this" is the tool itself.
 
 ### Knowing when to stop
 

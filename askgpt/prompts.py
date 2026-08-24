@@ -67,8 +67,13 @@ def resolve_task(explicit_text, task_file, spec_dir, branch):
     return None, "none"
 
 
-def build_review_payload(persona, task, target):
+def build_review_payload(persona, task, target, accepted_block=""):
     sections = [persona, "", "---", ""]
+
+    if accepted_block:
+        # User-authored disposition data from the state directory -- never from
+        # the repository, which the persona rightly treats as untrusted.
+        sections += [accepted_block, ""]
 
     if task:
         sections += ["<TASK>", task.strip(), "</TASK>", ""]
