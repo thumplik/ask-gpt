@@ -1,0 +1,118 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from askgpt.gitctx import Target
+from askgpt.prompts import (
+    build_ask_payload,
+    build_review_payload,
+    load_persona,
+    resolve_task,
+)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+TARGET = Target(
+    kind="base",
+    ref="abc123",
+    files=["src/a.py", "src/b.py"],
+    instruction="Review everything that would be delivered.",
+    description="changes vs main",
+)
+
+
+class PersonaTest(unittest.TestCase):
+    # load_persona was otherwise untested, meaning nothing verified that the
+    # persona file exists or still contains the clauses that make it useful.
+    def setUp(self):
+        self.persona = load_persona(REPO_ROOT)
+
+    def test_reads_the_persona_file(self):
+        self.assertIn("adversarial", self.persona.lower())
+
+    def test_requires_the_two_closing_lines(self):
+        self.assertIn("Would I merge this", self.persona)
+        self.assertIn("Largest residual risk", self.persona)
+
+    def test_forbids_manufacturing_findings(self):
+        # The clause that keeps the reviewer worth reading. Adversarial framing
+        # reliably induces invented problems; without this it cries wolf.
+        self.assertIn("Do not manufacture findings", self.persona)
+
+
+class BuildReviewPayloadTest(unittest.TestCase):
+    def test_includes_persona_and_instruction(self):
+        out = build_review_payload("PERSONA", "Add retries", TARGET)
+        self.assertIn("PERSONA", out)
+        self.assertIn("Review everything that would be delivered.", out)
+
+    def test_includes_task_verbatim(self):
+        out = build_review_payload("P", "Add retries to the uploader", TARGET)
+        self.assertIn("Add retries to the uploader", out)
+
+    def test_lists_changed_files(self):
+        out = build_review_payload("P", "t", TARGET)
+        self.assertIn("src/a.py", out)
+        self.assertIn("src/b.py", out)
+
+    def test_states_plainly_when_no_task_is_known(self):
+        out = build_review_payload("P", None, TARGET)
+        self.assertIn("no authoritative task", out.lower())
+        self.assertNotIn("<TASK>", out)
+
+    def test_never_includes_conversation(self):
+        # Independence: the reviewer must not read Claude's account of its work.
+        out = build_review_payload("P", "t", TARGET)
+        self.assertNotIn("## assistant", out)
+
+
+class BuildAskPayloadTest(unittest.TestCase):
+    def test_includes_question_and_transcript(self):
+        out = build_ask_payload("Is this sound?", "## user\nhello")
+        self.assertIn("Is this sound?", out)
+        self.assertIn("hello", out)
+
+
+class ResolveTaskTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_explicit_text_wins(self):
+        text, source = resolve_task("do the thing", None, self.dir, "feature")
+        self.assertEqual(text, "do the thing")
+        self.assertEqual(source, "--task")
+
+    def test_task_file_is_read(self):
+        path = self.dir / "task.md"
+        path.write_text("from file")
+        text, source = resolve_task(None, path, self.dir, "feature")
+        self.assertEqual(text, "from file")
+
+    def test_explicit_text_beats_task_file(self):
+        path = self.dir / "task.md"
+        path.write_text("from file")
+        text, _ = resolve_task("inline", path, self.dir, "feature")
+        self.assertEqual(text, "inline")
+
+    def test_matching_spec_is_used(self):
+        spec = self.dir / "2026-01-01-retry-logic-design.md"
+        spec.write_text("spec body")
+        text, source = resolve_task(None, None, self.dir, "retry-logic")
+        self.assertEqual(text, "spec body")
+        self.assertIn("spec", source)
+
+    def test_returns_none_when_nothing_matches(self):
+        text, source = resolve_task(None, None, self.dir, "unrelated")
+        self.assertIsNone(text)
+
+    def test_ambiguous_spec_match_is_declined(self):
+        (self.dir / "a-retry-logic.md").write_text("one")
+        (self.dir / "b-retry-logic.md").write_text("two")
+        text, source = resolve_task(None, None, self.dir, "retry-logic")
+        self.assertIsNone(text)
+
+
+if __name__ == "__main__":
+    unittest.main()
