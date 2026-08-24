@@ -156,7 +156,18 @@ def resolve_target(repo, base=None, commit=None, uncommitted=False):
             ),
         )
 
-    merge_base = git(repo, "merge-base", base, "HEAD")
+    # Prefer origin/<base> for the merge base. default_branch() returns a bare
+    # name for comparison against current_branch(), but using that bare name
+    # here resolves the LOCAL ref -- and a stale local main silently includes
+    # commits already merged upstream, producing findings against code the
+    # branch would not deliver.
+    base_ref = base
+    try:
+        git(repo, "show-ref", "--verify", "--quiet", "refs/remotes/origin/" + base)
+        base_ref = "origin/" + base
+    except GitCommandFailed:
+        pass
+    merge_base = git(repo, "merge-base", base_ref, "HEAD")
     committed = [
         f for f in git(repo, "diff", "--name-only", merge_base).splitlines() if f
     ]

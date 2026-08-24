@@ -5,9 +5,9 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: design stage.** The spec is complete and the underlying plumbing is
-> verified working, but the commands are not built yet. See
-> [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md).
+> **Status: built and working.** 157 tests, and the tool has been used to review its
+> own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
+> and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
 ## Privacy — read this first
 
@@ -26,8 +26,12 @@ Protections built in:
 
 - The exact payload is written to disk before anything is sent, so you can read it.
 - `--dry-run` builds the payload and sends nothing.
-- A secret scan (`sk-`, `ghp_`, `AKIA`, bearer tokens) **halts and asks** on a hit
-  rather than scrubbing silently.
+- A secret scan (`sk-`, `ghp_`, `AKIA`, bearer tokens) **halts** on a hit rather than
+  scrubbing silently. Override with `--allow-secrets`.
+- A preflight scan of the whole working tree **halts** if it finds sensitive files
+  (`.env`, `*.pem`, `.aws/`, …). Override with `--allow-sensitive-files`. It halts
+  rather than warning because a warning printed as the request goes out is not
+  something you can act on.
 - Payloads and responses live in a `0700` directory as `0600` files, deleted after each
   run unless you pass `--keep`.
 
@@ -70,6 +74,15 @@ Two entry points over one shared layer:
 Claude relays GPT's answer word for word, then says which findings it agrees with,
 which it thinks are wrong and why, and which need checking. Nothing gets changed
 without your say-so.
+
+## Install
+
+```bash
+git clone https://github.com/thumplik/ask-gpt && cd ask-gpt && ./install.sh
+```
+
+Then `/gptreview` or `/askgpt <question>` in Claude Code. `make test` runs the suite
+with no dependencies to install.
 
 ## Requirements
 

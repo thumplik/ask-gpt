@@ -187,6 +187,15 @@ def run(
             message += "\n\nPartial output before the failure:\n" + text
         raise AskGptError(message)
 
+    if not text:
+        # Exit 0 with an empty or absent -o file is not a successful review.
+        # Printing nothing and returning 0 tells the user their code is clean.
+        raise AskGptError(
+            "Codex exited 0 but produced no response.\n"
+            "Not retrying (retries burn subscription quota).\n\n"
+            + (error_text(proc.stdout, proc.stderr).strip()[:1000] or "(no diagnostics)")
+        )
+
     return Result(
         text=text,
         thread_id=parse_thread_id(proc.stdout or ""),

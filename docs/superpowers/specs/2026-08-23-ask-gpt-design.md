@@ -316,7 +316,13 @@ never appear in `payload.md`. The README states this explicitly — the phrase "
 sandbox" otherwise reads as a confidentiality guarantee, which it is not.
 
 Preflight therefore scans the **entire Codex-readable working tree** for sensitive
-filenames — not the review target — and warns before dispatch. Scanning the diff would be
+filenames — not the review target — and **halts** before dispatch, overridable with
+`--allow-sensitive-files`.
+
+It halts rather than warning. A warning printed in the same breath as the request is
+not a protection: the repository has already been sent by the time anyone reads it, and
+under Claude Code the command output may not surface until Codex has finished. This was
+found by the tool reviewing its own implementation. Scanning the diff would be
 incoherent with this whole section: a gitignored `.env` is precisely the file Codex can
 read and the diff will never contain.
 

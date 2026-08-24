@@ -15,6 +15,21 @@ def load_persona(repo_root):
     )
 
 
+PREFIXES = ("feature/", "feat/", "fix/", "build-", "feature-", "feat-", "fix-", "wip-")
+
+
+def _branch_candidates(branch):
+    """The branch name, then it with conventional prefixes stripped."""
+    seen = [branch]
+    lowered = branch.lower()
+    for prefix in PREFIXES:
+        if lowered.startswith(prefix) and len(branch) > len(prefix):
+            trimmed = branch[len(prefix):]
+            if trimmed not in seen:
+                seen.append(trimmed)
+    return seen
+
+
 def resolve_task(explicit_text, task_file, spec_dir, branch):
     """Return (task_text_or_None, source_label).
 
@@ -30,9 +45,18 @@ def resolve_task(explicit_text, task_file, spec_dir, branch):
 
     spec_dir = Path(spec_dir)
     if branch and spec_dir.is_dir():
-        matches = sorted(p for p in spec_dir.glob("*.md") if branch in p.name)
-        if len(matches) == 1:
-            return matches[0].read_text(encoding="utf-8"), "spec " + matches[0].name
+        # Real branch names rarely appear verbatim in a dated spec filename:
+        # "build-ask-gpt" is not a substring of "2026-08-23-ask-gpt-design.md",
+        # so exact matching meant this fallback essentially never fired. Try the
+        # branch, then progressively strip conventional prefixes. Still requires
+        # exactly one match -- ambiguity is declined, never guessed.
+        for candidate in _branch_candidates(branch):
+            matches = sorted(p for p in spec_dir.glob("*.md") if candidate in p.name)
+            if len(matches) == 1:
+                return (
+                    matches[0].read_text(encoding="utf-8"),
+                    "spec " + matches[0].name,
+                )
 
     return None, "none"
 

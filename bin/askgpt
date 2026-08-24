@@ -29,6 +29,11 @@ def add_common(parser):
     parser.add_argument("--keep", action="store_true", help="Keep payload/response files.")
     parser.add_argument("--model", default=runner.MODEL)
     parser.add_argument("--allow-secrets", action="store_true")
+    parser.add_argument(
+        "--allow-sensitive-files",
+        action="store_true",
+        help="Proceed even though sensitive files are readable by Codex.",
+    )
     parser.add_argument("--cwd", default=".")
     parser.add_argument("--session-id", default=os.environ.get("ASKGPT_CLAUDE_SESSION"))
 
@@ -61,6 +66,16 @@ def dispatch(args, payload, resume_thread=None):
     """Shared tail: scan, preflight, dispatch, persist, print."""
     repo = Path(args.cwd).resolve()
 
+    if args.model != runner.MODEL:
+        # --model is a deliberate escape hatch, so it stays. But the result must
+        # not be mistaken for the Sol review the tool exists to obtain.
+        print(
+            "warning: using --model " + args.model + " instead of " + runner.MODEL
+            + ".\n         This is NOT the model this tool pins; judge the output "
+              "accordingly.",
+            file=sys.stderr,
+        )
+
     findings = secrets.scan(payload)
     if findings and not args.allow_secrets:
         raise AskGptError(secrets.format_findings(findings))
@@ -76,9 +91,16 @@ def dispatch(args, payload, resume_thread=None):
             return 0
 
         hits = preflight.scan_tree(repo)
-        if hits:
-            print(preflight.format_warning(hits), file=sys.stderr)
-            print(file=sys.stderr)
+        if hits and not args.allow_sensitive_files:
+            # Halt, do not narrate. Printing a warning and dispatching in the
+            # same breath is not a protection: by the time the user reads it
+            # the repository has already been sent, and under Claude Code the
+            # output may not surface until Codex has finished.
+            raise AskGptError(
+                preflight.format_warning(hits)
+                + "\n\nNothing was sent. Re-run with --allow-sensitive-files "
+                  "if Codex reading these is acceptable."
+            )
 
         codex_bin = codex.find_codex()
         codex.check_auth(codex_bin)
@@ -92,8 +114,9 @@ def dispatch(args, payload, resume_thread=None):
             resume_thread=resume_thread,
         )
 
-        if result.thread_id and args.session_id:
-            state.save_thread(state_dir(), args.session_id, result.thread_id)
+        thread_key = args.session_id or getattr(args, "_fallback_session", None)
+        if result.thread_id and thread_key:
+            state.save_thread(state_dir(), thread_key, result.thread_id)
 
         if args.keep:
             print("Artifacts kept in " + str(art.dir), file=sys.stderr)
@@ -131,6 +154,10 @@ def _packed_transcript(args):
     config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
     project_dir = transcript.project_dir_for(Path(args.cwd).resolve(), config_dir)
     path = transcript.resolve_session(project_dir, args.session_id)
+    # Remember which transcript we actually used, so a follow-up can resume even
+    # when no --session-id was given. Otherwise the call succeeds and `follow`
+    # then reports "no prior thread" for a conversation that plainly happened.
+    args._fallback_session = args.session_id or path.stem
     return transcript.pack(transcript.load_jsonl(path), drop_last_turns=1)
 
 
@@ -141,6 +168,16 @@ def cmd_ask(args):
 
 def cmd_follow(args):
     thread_id = state.load_thread(state_dir(), args.session_id or "")
+    if not thread_id and not args.session_id:
+        # Mirror the ask-path fallback so an unkeyed ask can still be followed.
+        try:
+            config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
+            project_dir = transcript.project_dir_for(Path(args.cwd).resolve(), config_dir)
+            thread_id = state.load_thread(
+                state_dir(), transcript.resolve_session(project_dir, None).stem
+            )
+        except AskGptError:
+            thread_id = None
     if not thread_id:
         raise AskGptError(
             "No prior GPT thread for this session. Run `askgpt ask` or "

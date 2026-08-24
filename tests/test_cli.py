@@ -247,18 +247,39 @@ class PlumbingTest(CliTestCase):
         self.assertTrue(kept, result.stderr)
         self.assertTrue(Path(kept[0]).is_dir())
 
-    def test_preflight_warns_about_sensitive_files(self):
-        # Deleting the preflight call entirely passed the whole suite. It is a
-        # privacy feature; its absence must not be silent.
+    def test_preflight_halts_before_sending(self):
+        # A warning printed in the same breath as the dispatch is not a
+        # protection: the repository is already gone by the time anyone reads
+        # it, and under Claude Code the output may not surface until Codex has
+        # finished. So sensitive files halt the run.
+        repo = self.make_repo()
+        (repo / ".env").write_text("TOKEN=x\n")
+        marker = self.root / "codex-was-run"
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".env", result.stderr)
+        self.assertFalse(marker.exists(), "Codex ran despite sensitive files")
+
+    def test_allow_sensitive_files_overrides_the_halt(self):
         repo = self.make_repo()
         (repo / ".env").write_text("TOKEN=x\n")
         result = run_cli(
-            "review", "--uncommitted", "--task", "T",
+            "review", "--uncommitted", "--task", "T", "--allow-sensitive-files",
             "--cwd", str(repo), env=self.env(CODEX_BIN=self.working_codex()),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(".env", result.stderr)
-        self.assertIn("read", result.stderr.lower())
+
+    def test_overridden_model_is_announced(self):
+        repo = self.make_repo()
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T", "--model", "gpt-5.6-terra",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.working_codex()),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NOT the model this tool pins", result.stderr)
 
 
 class FollowTest(CliTestCase):
