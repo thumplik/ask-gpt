@@ -8,7 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from askgpt import codex, gitctx, preflight, prompts, runner, secrets, state, transcript
+from askgpt import (
+    codex, gitctx, preflight, prompts, runner, secrets, state, transcript, usage,
+)
 from askgpt.artifacts import Artifacts
 from askgpt.errors import AskGptError
 
@@ -54,6 +56,8 @@ def build_parser():
     ask = sub.add_parser("ask", help="Ask GPT anything, with conversation context")
     ask.add_argument("question")
     add_common(ask)
+
+    sub.add_parser("usage", help="Show remaining ChatGPT plan quota (costs nothing)")
 
     follow = sub.add_parser("follow", help="Continue the last GPT thread")
     follow.add_argument("text")
@@ -126,6 +130,12 @@ def dispatch(args, payload, resume_thread=None):
             print("Artifacts kept in " + str(art.dir), file=sys.stderr)
 
         print(result.text)
+
+        # Codex refreshed its own rate-limit record during that run, so this
+        # costs nothing beyond reading a local file.
+        footer = usage.format_footer(usage.read_latest(usage.sessions_dir()))
+        if footer:
+            print(footer, file=sys.stderr)
     return 0
 
 
@@ -170,6 +180,11 @@ def cmd_ask(args):
     return dispatch(args, payload)
 
 
+def cmd_usage(args):
+    print(usage.format_usage(usage.read_latest(usage.sessions_dir())))
+    return 0
+
+
 def cmd_follow(args):
     thread_id = state.load_thread(state_dir(), args.session_id or "")
     if not thread_id and not args.session_id:
@@ -192,7 +207,12 @@ def cmd_follow(args):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    handler = {"review": cmd_review, "ask": cmd_ask, "follow": cmd_follow}[args.command]
+    handler = {
+        "review": cmd_review,
+        "ask": cmd_ask,
+        "follow": cmd_follow,
+        "usage": cmd_usage,
+    }[args.command]
     try:
         return handler(args)
     except AskGptError as error:

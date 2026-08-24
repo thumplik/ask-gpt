@@ -12,6 +12,9 @@ Sends work to GPT-5.6-sol through the Codex CLI and relays the response.
 - `/askgpt <question>` — a general question with the session dialogue attached.
 - `/gptfollow <pushback>` — continue the same thread to argue with a finding.
 
+Run `askgpt usage` to report remaining plan quota. It reads a local file and makes no
+network call, so it never consumes the allowance it reports.
+
 ## Reading the response
 
 Relay it verbatim first. Then evaluate each finding on its merits — agree, disagree with

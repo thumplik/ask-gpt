@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 163 tests, and the tool has been used to review its
+> **Status: built and working.** 173 tests, and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -157,8 +157,30 @@ missing context does not.
 | `--allow-secrets` | Proceed past the secret scan (for false positives). |
 | `--allow-sensitive-files` | Proceed past the sensitive-file halt. |
 
+There is also `askgpt usage`, which takes no flags and makes no network call.
+
 **Start with `--dry-run` the first time.** It shows you exactly what would leave your
 machine and costs nothing.
+
+### Checking how much quota you have left
+
+```
+askgpt usage
+```
+
+```
+Plan:   plus
+Used:   2% of the 7-day window
+Resets: 2026-08-30 20:35
+```
+
+This costs nothing. Codex writes a rate-limit record into its own session log on every
+run, so the figure is read from disk rather than requested — checking your remaining
+allowance should not consume it. The reading is only as fresh as your last Codex run,
+which the output says plainly, and every review refreshes it.
+
+Each review also prints a one-line `quota: N% of the plan window used` footer, so you
+see the trend without asking.
 
 ### Continuing the conversation
 
@@ -199,7 +221,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 163 tests, no dependencies to install.
+`make test` runs the full suite — 173 tests, no dependencies to install.
 
 ## Requirements
 
