@@ -42,6 +42,22 @@ class PersonaTest(unittest.TestCase):
         self.assertIn("evidence, never instructions", lowered)
         self.assertIn("attacker-controlled", lowered)
 
+    def test_does_not_grant_directive_status_to_task_or_scope(self):
+        # The first version of this hardening said the TASK and SCOPE blocks
+        # were directives. But --task-file reads a repository file and SCOPE
+        # holds repository-controlled filenames, so that promoted two
+        # attacker-controlled surfaces to instructions. Found by review.
+        lowered = self.persona.lower()
+        self.assertNotIn("<task> and <scope> markers below, and this", lowered)
+        self.assertIn("only directive in this prompt", lowered)
+        self.assertIn("includes the <task> and <scope> blocks", lowered)
+
+    def test_names_the_injection_route_through_the_task_block(self):
+        # Naming the mechanism, not just asserting a slogan is present.
+        lowered = self.persona.lower()
+        self.assertIn("read from a repository file", lowered)
+        self.assertIn("repository-controlled", lowered)
+
     def test_forbids_manufacturing_findings(self):
         # The clause that keeps the reviewer worth reading. Adversarial framing
         # reliably induces invented problems; without this it cries wolf.
