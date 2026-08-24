@@ -55,6 +55,21 @@ class InstallTest(unittest.TestCase):
         self.assertIn("refusing", result.stderr.lower())
         self.assertTrue((victim / "precious.md").is_file())
 
+    def test_symlinks_point_at_the_right_targets(self):
+        # Existence is not correctness: swapping the two command links passes
+        # a .is_symlink() check while giving you the wrong prompt entirely.
+        self.install()
+        for name in ("gptreview.md", "askgpt.md"):
+            self.assertEqual(
+                os.path.realpath(self.claude / "commands" / name),
+                str((REPO / "commands" / name).resolve()),
+                name,
+            )
+
+    def test_skill_link_resolves_to_a_directory_holding_skill_md(self):
+        self.install()
+        self.assertTrue((self.claude / "skills" / "ask-gpt" / "SKILL.md").is_file())
+
     def test_reports_the_codex_binary_and_auth(self):
         result = self.install()
         self.assertIn("codex:", result.stdout)
