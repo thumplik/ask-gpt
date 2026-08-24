@@ -107,7 +107,17 @@ def dispatch(args, payload, resume_thread=None):
         # enclosing repo and can read files above the requested subdirectory,
         # so scanning only the subdirectory leaves a `.env` one level up
         # exposed while reporting the tree clean.
-        hits = preflight.scan_tree(gitctx.repo_root(repo))
+        root = gitctx.repo_root(repo)
+
+        # Two passes, because they miss different things. Filenames catch
+        # `.env` and `*.pem`; content catches a live key pasted into an
+        # ordinary source file, which Codex reads just as happily and which
+        # filename matching cannot see.
+        content_hits = preflight.scan_contents(root)
+        if content_hits and not args.allow_sensitive_files:
+            raise AskGptError(preflight.format_content_warning(content_hits))
+
+        hits = preflight.scan_tree(root)
         if hits and not args.allow_sensitive_files:
             # Halt, do not narrate. Printing a warning and dispatching in the
             # same breath is not a protection: by the time the user reads it

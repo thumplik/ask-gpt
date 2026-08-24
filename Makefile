@@ -5,3 +5,7 @@ test:
 .PHONY: lint
 lint:
 	python3 -m compileall -q askgpt bin/askgpt
+
+.PHONY: acceptance
+acceptance:
+	bash tests/acceptance.sh

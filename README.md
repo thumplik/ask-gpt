@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 183 tests, and the tool has been used to review its
+> **Status: built and working.** 193 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -22,16 +22,55 @@ Codex cannot *modify* your repo — it does not mean Codex cannot *read* it.** G
 files, `.env`, local credentials, and test fixtures are all readable. A preflight warns
 on obvious sensitive files, but treat the whole working tree as in scope.
 
+### What crosses which boundary
+
+There are three, and conflating them is how people misjudge the risk:
+
+| Boundary | What crosses it |
+|---|---|
+| Your machine → local Codex process | The whole repository. Codex runs locally and reads files directly. |
+| Local Codex → OpenAI | Whatever Codex decides to quote or summarise while reasoning, plus the payload we send. |
+| Never crosses | Nothing is written to your repo. `read-only` is enforced by Codex's sandbox. |
+
+The important consequence: **`read-only` constrains writes, not disclosure.** A file
+Codex reads can end up quoted in its reasoning and therefore uploaded, even though we
+never put it in the payload. That is why the preflight scans the whole tree rather than
+just the diff, and why it halts rather than warns.
+
 Protections built in:
 
 - The exact payload is written to disk before anything is sent, so you can read it.
 - `--dry-run` builds the payload and sends nothing.
 - A secret scan (`sk-`, `ghp_`, `AKIA`, bearer tokens) **halts** on a hit rather than
   scrubbing silently. Override with `--allow-secrets`.
-- A preflight scan of the whole working tree **halts** if it finds sensitive files
-  (`.env`, `*.pem`, `.aws/`, …). Override with `--allow-sensitive-files`. It halts
-  rather than warning because a warning printed as the request goes out is not
-  something you can act on.
+- A preflight scan of the whole working tree **halts** on two different things:
+  sensitive *filenames* (`.env`, `*.pem`, `.aws/`, …) and secret-shaped *content* inside
+  ordinary files. Both matter, and neither catches the other: filename matching cannot
+  see a live key pasted into `config.py`, which Codex reads just as happily. Override
+  with `--allow-sensitive-files`. It halts rather than warning because a warning printed
+  as the request goes out is not something you can act on.
+
+  Deliberately **no entropy or "looks fake" filter.** Measured on real and fake keys,
+  entropy does not separate them (3.7–4.9 vs 4.7–5.0, fully overlapping), and a
+  run-length filter would suppress `sk-abcdefghij0123456789ABCD` — which is exactly the
+  shape of a placeholder pasted over a real key and forgotten. A filter that usually
+  works is worse than none for a security control, so this errs toward noise.
+
+The two overrides cover different boundaries and are deliberately separate:
+`--allow-secrets` concerns the **payload we upload**; `--allow-sensitive-files` concerns
+**your repository**, which Codex reads directly.
+
+### Known limits
+
+Worth stating plainly rather than leaving you to discover them:
+
+- Content scanning matches the same six credential patterns as the payload scan. A
+  secret in an unusual format will not be caught.
+- It skips files over 256 KB, binaries, and vendor directories (`node_modules`, `.venv`,
+  `target`, …). A key inside a vendored dependency will not be flagged.
+- Discussing credentials trips it. A conversation *about* secret detection contains
+  secret-shaped strings — this README does. That is the intended trade: false positives
+  you can override beat false negatives you never see.
 - Payloads and responses live in a `0700` directory as `0600` files, deleted after each
   run unless you pass `--keep`.
 
@@ -261,7 +300,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 183 tests, no dependencies to install.
+`make test` runs the full suite — 193 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
 
 ## Requirements
 

@@ -295,6 +295,19 @@ class PlumbingTest(CliTestCase):
         self.assertIn(".env", result.stderr)
         self.assertFalse((self.root / "codex-was-run").exists())
 
+    def test_secret_inside_an_ordinary_file_halts_before_sending(self):
+        # Filename matching cannot see this; Codex reads it just as happily.
+        repo = self.make_repo()
+        (repo / "config.py").write_text("TOKEN = '" + SECRET + "'\n")
+        result = run_cli(
+            "review", "--uncommitted", "--task", "T",
+            "--cwd", str(repo), env=self.env(CODEX_BIN=self.landmine()),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("config.py", result.stderr)
+        self.assertNotIn(SECRET, result.stderr)
+        self.assertFalse((self.root / "codex-was-run").exists())
+
     def test_allow_sensitive_files_overrides_the_halt(self):
         repo = self.make_repo()
         (repo / ".env").write_text("TOKEN=x\n")
