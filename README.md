@@ -87,8 +87,9 @@ A few findings from building this, verified rather than assumed:
 - Model slugs are account-tier dependent. `gpt-5.6-sol` works; `gpt-5.6`,
   `gpt-5.6-codex`, and `gpt-5.3-codex` are all rejected with HTTP 400. Invalid slugs
   cost no quota — they are rejected before inference.
-- A 238 KB session transcript reduces to 17 KB once tool-result payloads and
-  system-reminder blocks are dropped, which is what makes sending it verbatim practical.
+- A 238 KB session transcript reduces to 17 KB once system-reminder blocks and
+  successful tool-result payloads are dropped, which is what makes attaching the dialogue
+  practical.
 - No environment variable exposes the Claude session id;
   `CLAUDE_CODE_HOST_SESSION_ID` is a different identifier.
 - `codex review` looks purpose-built for this and is not usable: its `--base` /

@@ -56,7 +56,7 @@ exists so a future reader can tell which claims were tested.
 |---|---|---|
 | Scope | Both a general ask and a dedicated review | Shares one context-packaging layer and one persona file |
 | Review context | Task + diff, **no Claude narration** | Claude summarising its own work anchors the reviewer; independence is the point |
-| Ask context | **Verbatim** transcript, filtered and capped | No self-serving summary; measured cheap enough to be practical |
+| Ask context | Dialogue verbatim; tool payloads omitted, capped | No self-serving summary; measured cheap enough to be practical |
 | Form factor | Skill + slash commands, **CLI only** | MCP cut from v1: a third execution path that routes payloads through Claude's context and duplicates `resume` |
 | Codex primitive | `codex exec` for **both** paths | `codex review` cannot take a custom prompt alongside a target flag, and cannot pin a model |
 | Response handling | Relay verbatim, then rebut point by point | User sees both sides; nothing changes without their word |
@@ -72,7 +72,7 @@ question / review request
         v
   context packager  -->  payload.md   (written to disk, inspectable)
         |                  - task statement (user's words, from transcript)
-        |                  - transcript, verbatim, filtered + capped   [ask]
+        |                  - dialogue verbatim, tool payloads omitted [ask]
         |                  - adversarial reviewer persona              [review]
         v
   codex CLI  (read-only sandbox, ChatGPT subscription auth)
@@ -192,9 +192,28 @@ because obtaining Sol's judgement is the entire purpose.
 
 Target selection happens locally, in the prompt, not via Codex flags. The command
 resolves the target, generates the git context, and instructs Sol which range to inspect.
-Auto-detection: on a non-default branch, diff against the default branch; otherwise
-review uncommitted work. Codex reads the working tree directly under `read-only`, so it
-inspects real files rather than a pre-rendered diff.
+Codex reads the working tree directly under `read-only`, so it inspects real files rather
+than a pre-rendered diff.
+
+**Target semantics, defined explicitly:**
+
+| Invocation | Includes |
+|---|---|
+| `--uncommitted` | staged + unstaged + untracked |
+| `--commit <sha>` | exactly that commit |
+| `--base <branch>` | commits since `git merge-base <branch> HEAD`, **plus** current staged, unstaged, and untracked work |
+| auto-detected (non-default branch) | identical to `--base <default-branch>` |
+| auto-detected (on default branch) | identical to `--uncommitted` |
+
+`--base` deliberately includes the dirty working tree — it answers "what would ship if I
+merged right now," not "what have I committed." This matters more here than in a normal
+review tool: the expected usage is asking for a review immediately after Claude writes
+code and before anything is committed. A target that silently reviewed yesterday's
+commits while ignoring code written seconds ago would look like it worked, which is worse
+than failing.
+
+The default branch is resolved from `origin/HEAD`, falling back to `main`, then `master`.
+The resolved target and its file count are printed before dispatch.
 
 Payload is the adversarial persona plus a `<TASK>` block containing the **user's own
 words, never a Claude summary**.
@@ -218,9 +237,12 @@ Same runner, with the filtered conversation added to the payload.
 
 ### Follow-ups
 
-The first call captures the thread id from the `--json` stream
-(`{"type":"thread.started","thread_id":"..."}`, first line) and stores it alongside the
-Claude session id. Follow-ups resume that exact thread:
+The first call captures the thread id from the `--json` event stream by iterating events
+until one has `type == "thread.started"`, then reading its `thread_id`. It is stored
+alongside the Claude session id.
+
+On `0.148.0-alpha.9` that event happens to arrive first (§2), but position is an
+observation, not a protocol guarantee — the parser must not depend on it. Follow-ups resume that exact thread:
 
 ```
 codex exec -m gpt-5.6-sol -s read-only --ignore-user-config resume <THREAD_ID> - < followup.md
@@ -280,8 +302,17 @@ fixtures with real credentials, and local key material are all in scope even whe
 never appear in `payload.md`. The README states this explicitly — the phrase "read-only
 sandbox" otherwise reads as a confidentiality guarantee, which it is not.
 
-Preflight scans the review target for obvious sensitive files (`.env*`, `*.pem`,
-`id_rsa*`, `*.p12`, `credentials.json`, `.npmrc`, `.netrc`) and warns before dispatch.
+Preflight therefore scans the **entire Codex-readable working tree** for sensitive
+filenames — not the review target — and warns before dispatch. Scanning the diff would be
+incoherent with this whole section: a gitignored `.env` is precisely the file Codex can
+read and the diff will never contain.
+
+- Scope: the full repository tree, **regardless of Git tracking or ignore status**.
+- Excluded: `.git/` only.
+- Matched: `.env*`, `*.pem`, `*.key`, `id_rsa*`, `*.p12`, `*.pfx`, `credentials.json`,
+  `.npmrc`, `.netrc`, `.aws/`, `*.keystore`.
+- Filename matching only. Content scanning of an entire tree is too slow to sit in front
+  of every review, and the filename signal is what makes the warning actionable.
 
 **Not shipping an `.askgptignore`.** It was considered and rejected: Codex explores the
 repository through its own sandbox, which has no per-file exclusion mechanism, so such a
