@@ -40,6 +40,19 @@ class ScanTest(unittest.TestCase):
         findings = scan("sk-abcdefghij0123456789ABCD\nAKIAIOSFODNN7EXAMPLE")
         self.assertEqual(len(findings), 2)
 
+    def test_excerpt_reports_the_length(self):
+        # Without this, _redact can drop the length entirely and the suite
+        # stays green -- verified by mutation.
+        finding = scan("sk-abcdefghij0123456789ABCD")[0]
+        self.assertIn("27", finding.excerpt)
+
+    def test_two_matches_of_one_pattern_on_one_line(self):
+        # test_reports_every_finding_not_just_the_first uses two DIFFERENT
+        # patterns on two DIFFERENT lines, so `search` instead of `finditer`
+        # passes it while silently under-reporting two keys pasted together.
+        findings = scan("a=sk-abcdefghij0123456789ABCD b=sk-zyxwvutsrq9876543210ZYXW")
+        self.assertEqual(len(findings), 2)
+
     def test_format_findings_never_prints_the_secret(self):
         # format_findings is what the user actually sees. Untested, it could
         # leak the very secret it is warning about.

@@ -20,6 +20,10 @@ PATTERNS = (
 
 
 def _redact(match_text):
+    """Six leading chars plus a length. Deliberate: the prefix is already known
+    from the pattern name and the length discloses no meaningful entropy, while
+    both together let a user recognise WHICH credential was matched without the
+    secret being reprinted into their terminal and scrollback."""
     head = match_text[:6]
     return head + "..." + str(len(match_text)) + " chars"
 
