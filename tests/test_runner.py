@@ -129,6 +129,21 @@ class RunTest(unittest.TestCase):
         self.assertIn("timed out", message)
         self.assertIn("not retrying", message)
 
+    def test_reviewing_text_about_quotas_is_not_a_quota_error(self):
+        # Codex echoes the material it reviews into its stream. Scanning a
+        # SUCCESSFUL run for error phrases misreads reviewed content as an
+        # error about the run: a real review of this repo was discarded as a
+        # quota failure because the repo says "quota" 27 times.
+        stub = self._stub(
+            "import sys\n"
+            "argv = sys.argv\n"
+            "open(argv[argv.index('-o') + 1], 'w').write('the code mentions quota, "
+            "usage limit, rate limit and 429')\n"
+            "print('reviewing rate limit handling, error 429, quota logic')\n"
+        )
+        result = run(stub, "payload", cwd=self.dir, out_path=self.dir / "out.md")
+        self.assertIn("quota", result.text)
+
     def test_quota_exhaustion_is_reported_plainly(self):
         stub = self._stub(
             "import sys\n"

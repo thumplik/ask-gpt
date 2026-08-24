@@ -12,10 +12,18 @@ MODEL = "gpt-5.6-sol"
 # Emitted verbatim by the API when a slug is not available to the account.
 UNSUPPORTED_MARKER = "is not supported when using Codex with a ChatGPT account"
 
-# Spec requires quota exhaustion to be reported plainly. The exact wording is
-# NOT verified -- reproducing it means exhausting a real plan. These markers are
-# a best effort; Task 12 records the true string if it is ever observed.
-QUOTA_MARKERS = ("usage limit", "rate limit", "quota", "429")
+# Quota wording is NOT verified -- reproducing it means exhausting a real plan.
+# These are deliberately narrow phrases rather than bare words: the earlier set
+# included "quota" and "429", which appear 40 times in this repository's own
+# text, so ANY review of it was misclassified as a quota failure and the real
+# review discarded. Markers are only ever consulted on a non-zero exit (below).
+QUOTA_MARKERS = (
+    "usage limit reached",
+    "rate limit exceeded",
+    "too many requests",
+    "quota exceeded",
+    "insufficient_quota",
+)
 
 DEFAULT_TIMEOUT = 1800
 
@@ -107,26 +115,30 @@ def run(
         raise AskGptError("Could not execute " + str(codex_bin) + ": " + str(error)) from None
 
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-
-    lowered = combined.lower()
-    if any(marker in lowered for marker in QUOTA_MARKERS):
-        raise QuotaExhausted(
-            "Codex reports a usage or rate limit on this ChatGPT plan.\n"
-            "Not retrying.\n\n" + combined.strip()[:2000]
-        )
-
-    if UNSUPPORTED_MARKER in combined:
-        raise ModelUnavailable(
-            "Model '" + model + "' is not available on this ChatGPT account.\n"
-            "Failing closed rather than downgrading -- an independent review from a\n"
-            "weaker model is not the review that was requested.\n"
-            "Override deliberately with --model if you want a different one."
-        )
-
     out_file = Path(out_path)
     text = out_file.read_text(encoding="utf-8").strip() if out_file.is_file() else ""
 
+    # Failure classification happens ONLY on a non-zero exit. Codex echoes the
+    # material it is reviewing into its event stream, so scanning a successful
+    # run's output for error phrases misreads the reviewed content as an error
+    # about the run -- a review of any code discussing rate limits was reported
+    # as a quota failure and thrown away.
     if proc.returncode != 0:
+        lowered = combined.lower()
+        if any(marker in lowered for marker in QUOTA_MARKERS):
+            raise QuotaExhausted(
+                "Codex reports a usage or rate limit on this ChatGPT plan.\n"
+                "Not retrying.\n\n" + combined.strip()[:2000]
+            )
+
+        if UNSUPPORTED_MARKER in combined:
+            raise ModelUnavailable(
+                "Model '" + model + "' is not available on this ChatGPT account.\n"
+                "Failing closed rather than downgrading -- an independent review from a\n"
+                "weaker model is not the review that was requested.\n"
+                "Override deliberately with --model if you want a different one."
+            )
+
         # Any non-zero exit is a failure, even when out.md holds partial or stale
         # content. Returning that text as a result would report an auth, quota, or
         # transport failure as a successful review.
