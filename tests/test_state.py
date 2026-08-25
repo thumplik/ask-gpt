@@ -74,6 +74,28 @@ class StateTest(unittest.TestCase):
             "the state root was left exposed while its child was repaired",
         )
 
+    def test_migrating_a_legacy_thread_carries_protection_with_it(self):
+        # A legacy file predates owner-only storage by definition, and
+        # os.replace keeps the SOURCE ACL -- so renaming alone hands the new
+        # name an exposed file, and the migration silently launders an
+        # unprotected thread into the current format.
+        from askgpt.state import _legacy_session_file, _session_file
+
+        root = permissive_dir(self.dir / "legacy-root")
+        permissive_dir(root / "threads")
+        legacy = _legacy_session_file(root, "claude-1")
+        legacy.write_text('{"thread_id": "T-legacy"}', encoding="utf-8")
+        self.assertFalse(secfs.is_owner_only(legacy), "precondition: exposed")
+
+        self.assertEqual(load_thread(root, "claude-1"), "T-legacy")
+
+        migrated = _session_file(root, "claude-1")
+        self.assertTrue(migrated.is_file(), "the migration did not happen")
+        self.assertTrue(
+            secfs.is_owner_only(migrated),
+            "the migrated thread file kept the legacy file's exposed ACL",
+        )
+
     def test_corrupt_state_is_treated_as_empty(self):
         from askgpt.state import _session_file
 

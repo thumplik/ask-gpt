@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -130,6 +131,33 @@ class InstallTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, "installer replaced a junction")
         self.assertIn("refusing", result.stderr.lower())
         self.assertTrue((real / "precious.md").is_file(), "junction target was destroyed")
+
+    @unittest.skipUnless(WINDOWS, "dangling-link semantics differ per platform")
+    def test_replaces_a_dangling_symlink_without_a_partial_install(self):
+        # Raised by review as a supposed preflight hole: Test-Path was said to
+        # report false for a dangling link, letting it pass preflight and then
+        # fail at mklink mid-install. Measured otherwise -- Test-Path returns
+        # TRUE for one here, so it is correctly seen as a replaceable symlink.
+        # Kept as a regression test because the behaviour is worth pinning even
+        # though the reported defect does not reproduce.
+        victim = self.claude / "skills" / "second-opinion"
+        victim.parent.mkdir(parents=True, exist_ok=True)
+        gone = self.root / "target-that-disappears"
+        gone.mkdir()
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/D", str(victim), str(gone)],
+            capture_output=True,
+            check=True,
+        )
+        shutil.rmtree(gone)
+
+        result = self.install()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            os.path.realpath(victim), str(REPO.resolve()),
+            "the dangling link was not repointed at the repository",
+        )
 
     def test_symlinks_point_at_the_right_targets(self):
         # Existence is not correctness: swapping the two command links passes

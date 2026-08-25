@@ -67,9 +67,17 @@ def load_thread(state_dir, claude_session):
         if legacy.is_file():
             # Migrate on read: move it to the hashed name so the aliasing fix
             # applies from here on, and the conversation survives the upgrade.
+            #
+            # The migration must carry the protection with it. A legacy file
+            # predates owner-only storage by definition, and os.replace keeps
+            # the source ACL -- so renaming alone hands the new name an exposed
+            # file. The bare mkdir here had the same flaw the write path did:
+            # no mode, so a threads/ created during migration inherited whatever
+            # the parent allowed.
             try:
-                path.parent.mkdir(parents=True, exist_ok=True)
+                secfs.secure_tree(state_dir, "threads")
                 os.replace(str(legacy), str(path))
+                secfs.restrict_file(path)
             except OSError:
                 path = legacy   # read-only state dir: still readable in place
         else:
