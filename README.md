@@ -446,6 +446,13 @@ plugin is **optional**: `/gptreview` uses its `receiving-code-review` skill when
 and falls back to equivalent inline instructions when not, so a clean install works
 without it.
 
+## Contributing / porting
+
+Picking this up on another platform? Start with
+[docs/HANDOFF-WINDOWS.md](docs/HANDOFF-WINDOWS.md) — it records the verified
+blockers, the testing discipline this project relies on, and the traps that cost
+real time.
+
 ## Design notes
 
 A few findings from building this, verified rather than assumed:
