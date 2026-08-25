@@ -5,6 +5,7 @@ from pathlib import Path
 
 from askgpt.runner import MODEL, build_argv, model_chain, parse_thread_id, run
 from askgpt.errors import AskGptError, ModelUnavailable, QuotaExhausted
+from stubs import write_program
 
 
 class BuildArgvTest(unittest.TestCase):
@@ -90,10 +91,7 @@ class RunTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def _stub(self, body):
-        path = self.dir / "codex-stub"
-        path.write_text("#!/usr/bin/env python3\n" + body)
-        path.chmod(path.stat().st_mode | stat.S_IEXEC)
-        return str(path)
+        return write_program(self.dir / "codex-stub", body)
 
     def test_returns_text_and_thread_id(self):
         stub = self._stub(
@@ -242,7 +240,9 @@ class RunTest(unittest.TestCase):
         counter = self.dir / "attempts"
         stub = self._stub(
             "import sys, pathlib\n"
-            "p = pathlib.Path('" + str(counter) + "')\n"
+            # repr, not manual quoting: a Windows path is full of backslashes
+            # and lands in this stub's source as escape sequences otherwise.
+            "p = pathlib.Path(" + repr(str(counter)) + ")\n"
             "p.write_text(str(int(p.read_text()) + 1) if p.exists() else '1')\n"
             "sys.stderr.write('connection reset\\n')\n"
             "sys.exit(1)\n"

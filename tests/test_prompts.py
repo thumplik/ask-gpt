@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from permissive import unreadable
 from askgpt.gitctx import Target
 from askgpt.prompts import (
     build_ask_payload,
@@ -195,14 +196,13 @@ class ResolveTaskTest(unittest.TestCase):
         self.assertIn("spec", source)
 
     def test_unreadable_auto_matched_spec_declines_cleanly(self):
-        import os
+        # chmod(0o000) does not make a file unreadable on Windows -- it only
+        # sets the read-only attribute -- so this used to read the spec
+        # perfectly and assert nothing about the failure it names.
         spec = self.dir / "2026-01-01-topic-design.md"
         spec.write_text("body")
-        os.chmod(spec, 0o000)
-        try:
+        with unreadable(spec):
             text, source = resolve_task(None, None, self.dir, "topic")
-        finally:
-            os.chmod(spec, 0o644)
         self.assertIsNone(text)  # declined, did not raise
 
     def test_returns_none_when_nothing_matches(self):

@@ -6,6 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from askgpt.transcript import project_dir_for
+from stubs import make_executable, write_program
+
 REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "bin" / "askgpt"
 
@@ -51,9 +54,15 @@ class CliTestCase(unittest.TestCase):
     def landmine(self):
         """A fake codex that records being run and fails. Proves 'sends nothing'."""
         path = self.root / "codex-landmine"
-        path.write_text("#!/bin/sh\ntouch '" + str(self.marker) + "'\nexit 1\n")
-        path.chmod(0o755)
-        return str(path)
+        # Written in Python rather than sh so it is executable on every
+        # supported platform; the marker path is repr'd because a Windows
+        # path is full of backslashes that would otherwise be escapes.
+        return write_program(
+            path,
+            "import pathlib, sys\n"
+            "pathlib.Path(" + repr(str(self.marker)) + ").write_text('')\n"
+            "sys.exit(1)\n",
+        )
 
     def working_codex(self, thread_id="TID42", body="REVIEW TEXT"):
         """A fake codex that answers `login status` and writes a result."""
@@ -68,8 +77,7 @@ class CliTestCase(unittest.TestCase):
             "open(argv[argv.index('-o') + 1], 'w').write('" + body + "')\n"
             "print('{\"type\":\"thread.started\",\"thread_id\":\"" + thread_id + "\"}')\n"
         )
-        path.chmod(0o755)
-        return str(path)
+        return make_executable(path)
 
     def env(self, **extra):
         base = dict(os.environ, ASKGPT_STATE_DIR=str(self.root / "state"))
@@ -176,9 +184,10 @@ class SecretGateTest(CliTestCase):
 class AskTest(CliTestCase):
     def make_transcript(self, repo, session):
         config = self.root / "claude"
-        slug = str(repo.resolve()).replace("/", "-")
-        project = config / "projects" / slug
-        project.mkdir(parents=True)
+        # The product's own mapping, not a reimplementation of it -- see the
+        # note in ProjectThreadTest.make_transcript_for.
+        project = project_dir_for(repo, config)
+        project.mkdir(parents=True, exist_ok=True)
         rows = [
             {"type": "user", "message": {"role": "user", "content": "REAL QUESTION"}},
             {"type": "user", "message": {"role": "user", "content": [
@@ -235,11 +244,10 @@ class PlumbingTest(CliTestCase):
             "if 'login' in argv:\n"
             "    print('Logged in using ChatGPT')\n"
             "    sys.exit(0)\n"
-            "open('" + str(self.argv_log) + "', 'w').write(' '.join(argv))\n"
+            "open(" + repr(str(self.argv_log)) + ", 'w').write(' '.join(argv))\n"
             "open(argv[argv.index('-o') + 1], 'w').write('OK')\n"
         )
-        path.chmod(0o755)
-        return str(path)
+        return make_executable(path)
 
     def test_model_flag_reaches_codex(self):
         # Silently ignoring --model means the user believes they overrode the
@@ -334,7 +342,7 @@ class PlumbingTest(CliTestCase):
             "    sys.exit(1)\n"
             "open(argv[argv.index('-o') + 1], 'w').write('FALLBACK BODY')\n"
         )
-        path.chmod(0o755)
+        path = make_executable(path)
         result = run_cli(
             "review", "--uncommitted", "--task", "T",
             "--cwd", str(repo), env=self.env(CODEX_BIN=str(path)),
@@ -358,7 +366,7 @@ class PlumbingTest(CliTestCase):
             "using Codex with a ChatGPT account\"}')\n"
             "sys.exit(1)\n"
         )
-        path.chmod(0o755)
+        path = make_executable(path)
         result = run_cli(
             "review", "--uncommitted", "--task", "T", "--no-fallback",
             "--cwd", str(repo), env=self.env(CODEX_BIN=str(path)),
@@ -491,8 +499,11 @@ class LedgerCliTest(CliTestCase):
 class ProjectThreadTest(CliTestCase):
     def make_transcript_for(self, repo, session):
         config = self.root / "claude"
-        slug = str(repo.resolve()).replace("/", "-")
-        project = config / "projects" / slug
+        # Use the product's own mapping rather than a second copy of it. Two
+        # copies is what let a Windows bug hide: helper and implementation were
+        # wrong in the same way, so they agreed and the suite stayed green.
+        # project_dir_for has its own tests in test_transcript.py.
+        project = project_dir_for(repo, config)
         project.mkdir(parents=True, exist_ok=True)
         (project / (session + ".jsonl")).write_text(
             json.dumps({"type": "user",
@@ -567,12 +578,11 @@ class ProjectThreadTest(CliTestCase):
             "if 'login' in argv:\n"
             "    sys.stderr.write('Logged in using ChatGPT\\n')\n"
             "    sys.exit(0)\n"
-            "pathlib.Path('" + str(argv_log) + "').write_text(' '.join(argv))\n"
+            "pathlib.Path(" + repr(str(argv_log)) + ").write_text(' '.join(argv))\n"
             "open(argv[argv.index('-o') + 1], 'w').write('BODY')\n"
             "print('{\"type\":\"thread.started\",\"thread_id\":\"REV-T\"}')\n"
         )
-        recorder.chmod(0o755)
-        codex = str(recorder)
+        codex = make_executable(recorder)
         review = run_cli("review", "--uncommitted", "--task", "T",
                          "--session-id", "sX", "--cwd", str(repo),
                          env=self.env(CODEX_BIN=codex))

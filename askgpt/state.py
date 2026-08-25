@@ -17,6 +17,8 @@ import re
 import tempfile
 from pathlib import Path
 
+from . import secfs
+
 # The session id arrives from the command line, so this is a security
 # boundary: unsanitised it would be a path-traversal write primitive.
 UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
@@ -38,12 +40,12 @@ def _session_file(state_dir, claude_session):
 
 def save_thread(state_dir, claude_session, thread_id):
     path = _session_file(state_dir, claude_session)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    secfs.secure_dir(path.parent)
 
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump({"thread_id": thread_id}, handle, indent=2)
-    os.chmod(tmp, 0o600)
+    secfs.restrict_file(tmp)
     os.replace(tmp, path)          # atomic within a filesystem
     return path
 
@@ -97,7 +99,7 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
     digest = hashlib.sha256(raw).hexdigest()[:12]
 
     directory = Path(state_dir) / "responses"
-    directory.mkdir(parents=True, exist_ok=True)
+    secfs.secure_dir(directory)
     name = (
         UNSAFE.sub("_", str(claude_session or "unkeyed"))
         + "-"
@@ -111,6 +113,7 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as handle:
         handle.write(raw)
+    secfs.restrict_file(path)
 
     if payload is not None:
         # The payload snapshot makes dispositions auditable: once the ledger
@@ -120,6 +123,7 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
         fd = os.open(str(side), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload.encode("utf-8"))
+        secfs.restrict_file(side)
 
     _prune(directory)
     return path, digest, len(raw)

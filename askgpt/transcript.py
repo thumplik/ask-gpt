@@ -39,8 +39,17 @@ def load_jsonl(path):
 
 
 def project_dir_for(cwd, config_dir):
-    """Map a working directory to its Claude transcript directory."""
-    slug = str(Path(cwd).resolve()).replace("/", "-")
+    """Map a working directory to its Claude transcript directory.
+
+    Claude Code flattens the absolute path into a single directory name. On
+    Windows that means the drive colon and the backslashes, not just forward
+    slashes: `C:\\Users\\thump\\ask-gpt` is stored as `C--Users-thump-ask-gpt`
+    (confirmed against a real ~/.claude/projects). Replacing only "/" left the
+    separators in place, so the result was read as a nested path that never
+    exists -- `/askgpt` then found no transcript at all on Windows.
+    """
+    resolved = str(Path(cwd).resolve())
+    slug = resolved.replace("/", "-").replace("\\", "-").replace(":", "-")
     return Path(config_dir) / "projects" / slug
 
 

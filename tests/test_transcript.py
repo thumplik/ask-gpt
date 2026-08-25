@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from askgpt.transcript import load_jsonl, pack, resolve_session
+import sys
+
+from askgpt.transcript import load_jsonl, pack, project_dir_for, resolve_session
 from askgpt.errors import TranscriptNotFound
 
 FIXTURE = Path(__file__).parent / "fixtures" / "session.jsonl"
@@ -171,6 +173,49 @@ class ResolveSessionTest(unittest.TestCase):
     def test_raises_when_named_session_is_absent(self):
         with self.assertRaises(TranscriptNotFound):
             resolve_session(self.dir, "missing")
+
+
+class ProjectDirForTest(unittest.TestCase):
+    r"""Coverage for the transcript directory name.
+
+    This function had none, and both CLI test helpers reimplemented it rather
+    than calling it -- with the same flaw, so they agreed with each other and
+    the suite stayed green while `/askgpt` could not find a transcript on
+    Windows at all.
+    """
+
+    def test_the_name_is_a_single_flat_component(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            name = project_dir_for(tmp, Path(tmp) / "config").name
+            for separator in ("/", "\\", ":"):
+                self.assertNotIn(
+                    separator,
+                    name,
+                    "a separator left in the name makes this a nested path, so "
+                    "the directory Claude actually wrote is never found",
+                )
+
+    def test_it_sits_directly_under_projects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config"
+            self.assertEqual(project_dir_for(tmp, config).parent, config / "projects")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows drive-letter form")
+    def test_windows_drive_and_backslashes_become_dashes(self):
+        # The convention Claude Code actually uses, read off a real
+        # ~/.claude/projects: C:\Users\thump\ask-gpt -> C--Users-thump-ask-gpt.
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = str(Path(tmp).resolve())
+            expected = resolved.replace("\\", "-").replace(":", "-")
+            self.assertEqual(project_dir_for(tmp, Path("cfg")).name, expected)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX form")
+    def test_posix_slashes_become_dashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = str(Path(tmp).resolve())
+            self.assertEqual(
+                project_dir_for(tmp, Path("cfg")).name, resolved.replace("/", "-")
+            )
 
 
 if __name__ == "__main__":

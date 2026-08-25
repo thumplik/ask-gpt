@@ -12,13 +12,20 @@ concurrency:
 
 jobs:
   test:
-    # Both, deliberately. The tool resolves the Codex binary from a macOS app
-    # bundle and the installer symlinks into a Unix config dir; Linux proves
-    # nothing depends on the developer's machine.
+    # All three, deliberately. The tool resolves the Codex binary from a macOS
+    # app bundle and the installer symlinks into a Unix config dir; Linux
+    # proves nothing depends on the developer's machine; Windows proves the
+    # msvcrt locking, the ACL-based permissions and the PowerShell installer,
+    # none of which any Unix job exercises.
+    #
+    # The Windows runner is elevated, so it HAS SeCreateSymbolicLinkPrivilege
+    # and therefore actually runs the installer tests. A developer machine
+    # without Developer Mode skips those, which is exactly why they must run
+    # here -- otherwise the installer would be covered nowhere.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.9", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -26,11 +33,43 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+
       - name: No dependencies to install
-        run: python3 -c "import sys; print(sys.version)"
+        run: python -c "import sys; print(sys.version)"
+
+      # Windows has no `make` and no `python3`, so the same targets are driven
+      # through make.ps1 rather than pretending one entry point covers both.
       - name: Unit tests
+        if: runner.os != 'Windows'
         run: make test
+      - name: Unit tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\make.ps1 test
+
       - name: Compile check
+        if: runner.os != 'Windows'
         run: make lint
+      - name: Compile check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\make.ps1 lint
+
       - name: Acceptance suite (fresh install, stub Codex)
+        if: runner.os != 'Windows'
         run: make acceptance
+      - name: Acceptance suite (Windows, fresh install, stub Codex)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\make.ps1 acceptance
+
+      # A skip is invisible in a green tick. Windows is the platform where a
+      # privilege or filesystem limit can silently remove coverage, so the
+      # skips are printed and must be read.
+      - name: Report skipped tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v 2>&1 |
+            Select-String -Pattern "skipped" |
+            ForEach-Object { $_.Line }

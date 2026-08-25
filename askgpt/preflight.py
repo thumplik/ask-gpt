@@ -7,7 +7,7 @@ tree rather than the review target.
 
 import fnmatch
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .secrets import scan as scan_text
 
@@ -54,6 +54,11 @@ def scan_tree(root, skip_dirs=SKIP_DIRS, limit=DEFAULT_LIMIT):
 
     Filename matching only. Content scanning of a whole tree is too slow to
     sit in front of every review, and the filename is the actionable signal.
+
+    Paths come back as PurePosixPath so that the warning reads the same on
+    every platform -- `deploy/server.pem`, never `deploy\server.pem` -- and so
+    the sort order does not change with the separator. Windows sorts `\`
+    (0x5C) after `/` (0x2F), which silently reorders the list against POSIX.
     """
     root = Path(root)
     hits = []
@@ -63,13 +68,13 @@ def scan_tree(root, skip_dirs=SKIP_DIRS, limit=DEFAULT_LIMIT):
 
         for dirname in list(dirnames):
             if dirname in SENSITIVE_DIRS:
-                hits.append(Path(dirpath, dirname).relative_to(root))
+                hits.append(PurePosixPath(Path(dirpath, dirname).relative_to(root).as_posix()))
                 dirnames.remove(dirname)   # reported as a unit; do not descend
 
         for filename in filenames:
             for pattern in SENSITIVE_GLOBS:
                 if fnmatch.fnmatch(filename, pattern):
-                    hits.append(Path(dirpath, filename).relative_to(root))
+                    hits.append(PurePosixPath(Path(dirpath, filename).relative_to(root).as_posix()))
                     break
 
     hits.sort()

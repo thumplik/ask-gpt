@@ -5,7 +5,7 @@ Codex access included with your ChatGPT plan — no API key required.
 
 (Usage counts against your ChatGPT plan's limits, which vary by tier.)
 
-> **Status: built and working.** 269 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
+> **Status: built and working.** 279 tests, plus 29 end-to-end acceptance checks (`make acceptance`), and the tool has been used to review its
 > own implementation. See [the design spec](docs/superpowers/specs/2026-08-23-ask-gpt-design.md)
 > and [the implementation plan](docs/superpowers/plans/2026-08-23-ask-gpt.md).
 
@@ -104,8 +104,10 @@ Worth stating plainly rather than leaving you to discover them:
 - Discussing credentials trips it. A conversation *about* secret detection contains
   secret-shaped strings — this README does. That is the intended trade: false positives
   you can override beat false negatives you never see.
-- Payloads and responses live in a `0700` directory as `0600` files, deleted after each
-  run unless you pass `--keep`.
+- Payloads and responses live in an owner-only directory as owner-only files, deleted
+  after each run unless you pass `--keep`. On macOS and Linux that is `0700`/`0600`; on
+  Windows those modes are ignored by the OS, so it is a restricted ACL instead — see
+  [SECURITY.md](SECURITY.md#data-at-rest).
 
 `gptreview` sends your code, not your conversation.
 
@@ -415,7 +417,7 @@ transcript to attach, so it is mainly useful from inside Claude Code.
 It never retries on failure. Retries would silently spend your ChatGPT quota, so every
 error stops and tells you what happened.
 
-`make test` runs the full suite — 269 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
+`make test` runs the full suite — 279 tests, plus 29 end-to-end acceptance checks (`make acceptance`), no dependencies to install.
 
 ## Supported platforms
 
@@ -423,23 +425,64 @@ error stops and tells you what happened.
 |---|---|
 | macOS | Tested, including live runs against a real account |
 | Linux | CI-tested (unit + acceptance) with a **stubbed** Codex. The live auth and inference path is **not** yet verified on Linux |
-| WSL | Untested. Codex and Claude Code must be authenticated *inside* the same WSL environment; a Windows desktop install does not satisfy that |
-| Native Windows | **Unsupported** — use WSL. Not merely untested: the ledger needs `fcntl` file locking (no Windows equivalent wired up), and the `0600`/`0700` modes protecting payloads, response archives and thread state are not enforced by Windows. A build that looks fine while storing your conversations unprotected is worse than none, so it refuses with an explanation rather than half-working. The Bash installer and symlinks are the easy part |
+| WSL | Untested. Codex and Claude Code must be authenticated *inside* the same WSL environment; a Windows desktop install does not satisfy that. Note that the Windows ChatGPT desktop app bundles a **Windows** `codex.exe`, which a WSL environment cannot use directly — so WSL is not the shortcut it appears to be |
+| Native Windows | **Supported**, with one setup step and two documented gaps — see below |
 
 Passing Ubuntu CI proves the Python and installer are portable. It does not prove a real
 Linux authentication and inference path — those are different claims and only the first
 is evidenced.
 
+### Native Windows
+
+Verified on Windows 10 Pro 19045, Python 3.13, `codex-cli 0.149.0-alpha.4.3` bundled
+with the ChatGPT desktop app: the full unit suite passes, the Codex binary is found
+without configuration, and a real `--dry-run` builds its payload end to end.
+
+**Setup step.** Installing needs symlinks, which Windows grants only to elevated
+processes or to accounts with **Developer Mode** on (Settings → System → For
+developers). `install.ps1` refuses with that instruction rather than silently copying
+files, because a copied install goes stale on every edit with nothing to tell you.
+
+```powershell
+.\install.ps1
+```
+
+Use `.\make.ps1 test` in place of `make test`; Windows has neither `make` nor a
+`python3` executable.
+
+**How the two guarantees are provided**, since they are not the POSIX ones:
+
+- *Locking.* `msvcrt.locking` replaces `fcntl.flock`. Verified with 30 concurrent
+  `accept` processes: 30 entries survive with the lock and 6 without, so the ledger
+  race the lock exists to prevent is genuinely closed.
+- *Owner-only files.* `os.chmod` is a no-op here — `0600` measurably yields `0666`,
+  and a file written into a permissive directory grants `NT AUTHORITY\INTERACTIVE`
+  (any logged-on user) Modify. Protection is therefore written as a real ACL, and the
+  tests assert the **resolved ACL** rather than that `chmod` was called. A state
+  directory left exposed by an earlier build is repaired in place on next write.
+
+**Known gaps**, both narrower than they sound:
+
+- Symlink-dependent tests (the installer, and the external-symlink preflight) *skip*
+  without Developer Mode. They are not silently absent — each prints the privilege it
+  needs. CI runs elevated, so they execute there.
+- One test cannot exist on Windows at all: filenames containing newlines, which the
+  filesystem forbids. The NUL-splitting it guards is covered by an equivalent
+  awkward-filename case using characters Windows does permit.
+
 ## Requirements
 
-- macOS with the ChatGPT desktop app (bundles the Codex CLI), or Codex installed
-  separately
+- macOS or Windows with the ChatGPT desktop app (bundles the Codex CLI), or Codex
+  installed separately
 - A ChatGPT plan that includes Codex
 - `codex login` completed — `codex login status` should report a ChatGPT account
 - Claude Code
 
 Also needed: Python 3.9+, Git, and a Unix shell — all present by default on macOS and
 Linux. Nothing to `pip install`.
+
+On Windows, PowerShell replaces the Unix shell (`install.ps1`, `make.ps1`) and
+Developer Mode must be enabled so the installer can create symlinks.
 
 The [superpowers](https://github.com/anthropics/claude-plugins-official)
 plugin is **optional**: `/gptreview` uses its `receiving-code-review` skill when present

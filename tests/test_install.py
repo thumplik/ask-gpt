@@ -1,13 +1,37 @@
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from capabilities import SYMLINK_REASON, can_symlink
+from stubs import write_stub
+
 REPO = Path(__file__).resolve().parent.parent
-INSTALL = REPO / "install.sh"
+WINDOWS = sys.platform == "win32"
+
+# One installer per platform, deliberately not one script pretending to be
+# portable: install.sh is bash and symlinks, install.ps1 is PowerShell and the
+# same symlinks plus a .cmd shim, because a shebang is not executable here.
+if WINDOWS:
+    INSTALL_ARGV = [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(REPO / "install.ps1"),
+    ]
+    CLI_NAME = "askgpt.cmd"
+else:
+    INSTALL_ARGV = ["bash", str(REPO / "install.sh")]
+    CLI_NAME = "askgpt"
 
 
+# Skipped loudly rather than quietly: an installer that is never exercised is
+# how "Windows is supported" becomes a claim nobody checked.
+@unittest.skipUnless(can_symlink(), SYMLINK_REASON)
 class InstallTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -16,9 +40,7 @@ class InstallTest(unittest.TestCase):
         self.claude = self.root / "claude"
         self.claude.mkdir()
 
-        stub = self.root / "codex"
-        stub.write_text('#!/bin/sh\necho "Logged in using ChatGPT"\n')
-        stub.chmod(0o755)
+        stub = write_stub(self.root / "codex", stdout="Logged in using ChatGPT")
         self.env = dict(
             os.environ,
             CLAUDE_CONFIG_DIR=str(self.claude),
@@ -28,8 +50,11 @@ class InstallTest(unittest.TestCase):
 
     def install(self):
         return subprocess.run(
-            ["bash", str(INSTALL)], capture_output=True, text=True, env=self.env
+            INSTALL_ARGV, capture_output=True, text=True, env=self.env
         )
+
+    def cli(self):
+        return self.root / "bin" / CLI_NAME
 
     def test_creates_every_symlink(self):
         result = self.install()
@@ -42,15 +67,30 @@ class InstallTest(unittest.TestCase):
     def test_puts_the_cli_on_path(self):
         # `askgpt usage` should work from a terminal, not only via a full path.
         self.install()
-        link = self.root / "bin" / "askgpt"
-        self.assertTrue(link.is_symlink())
-        self.assertEqual(
-            os.path.realpath(link), str((REPO / "bin" / "askgpt").resolve())
-        )
+        entry = self.cli()
+        self.assertTrue(entry.exists(), str(entry))
+        if WINDOWS:
+            # A generated shim rather than a symlink, so what matters is that
+            # it dispatches to this repository's CLI and not some other copy.
+            self.assertIn(
+                str((REPO / "bin" / "askgpt").resolve()),
+                entry.read_text(),
+            )
+        else:
+            self.assertTrue(entry.is_symlink())
+            self.assertEqual(
+                os.path.realpath(entry), str((REPO / "bin" / "askgpt").resolve())
+            )
 
-    def test_cli_is_executable_afterwards(self):
+    def test_cli_runs_afterwards(self):
+        # Stronger than the executable-bit check this replaced, and meaningful
+        # on both platforms: Windows has no such bit, and os.access(X_OK) there
+        # answers True for any file at all, so it proved nothing.
         self.install()
-        self.assertTrue(os.access(REPO / "bin" / "askgpt", os.X_OK))
+        result = subprocess.run(
+            [str(self.cli()), "--help"], capture_output=True, text=True, env=self.env
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_rerunning_replaces_existing_symlinks(self):
         self.assertEqual(self.install().returncode, 0)
@@ -99,6 +139,30 @@ class InstallTest(unittest.TestCase):
         result = self.install()
         self.assertIn("codex:", result.stdout)
         self.assertIn("auth:", result.stdout)
+
+
+@unittest.skipUnless(WINDOWS, "the privilege refusal is Windows-only")
+class WindowsSymlinkRefusalTest(unittest.TestCase):
+    @unittest.skipIf(can_symlink(), "this account can create symlinks")
+    def test_refuses_clearly_without_the_privilege(self):
+        # The one case that must behave well on an unprepared machine: no
+        # symlink privilege. It has to explain the fix rather than fail with a
+        # raw OSError, and it must not half-install anything first.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            claude = root / "claude"
+            claude.mkdir()
+            env = dict(
+                os.environ,
+                CLAUDE_CONFIG_DIR=str(claude),
+                ASKGPT_BIN_DIR=str(root / "bin"),
+            )
+            result = subprocess.run(
+                INSTALL_ARGV, capture_output=True, text=True, env=env
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Developer Mode", result.stderr)
+            self.assertFalse((claude / "ask-gpt").exists())
 
 
 if __name__ == "__main__":

@@ -18,7 +18,9 @@ class Target:
 
 def git(repo, *args):
     result = subprocess.run(
-        ["git"] + list(args), cwd=str(repo), capture_output=True, text=True
+        ["git"] + list(args), cwd=str(repo), capture_output=True, text=True,
+            encoding="utf-8",
+            errors="replace"
     )
     if result.returncode != 0:
         raise GitCommandFailed(
@@ -33,9 +35,19 @@ def _names_z(repo, *args):
     Git allows newlines in filenames, so splitlines() invents extra paths and
     inflates the file count. NUL-delimited output is unambiguous, matching how
     the dirty-tree path already parses.
+
+    The encoding is pinned because `text=True` alone decodes with the locale
+    codepage -- cp1252 on a default Windows install -- while git writes paths
+    as UTF-8. Left to the default, `café.txt` arrives as `cafÃ©.txt` and that
+    mangled name is what gets sent to Codex and matched against the tree.
     """
     raw = subprocess.run(
-        ["git"] + list(args), cwd=str(repo), capture_output=True, text=True
+        ["git"] + list(args),
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if raw.returncode != 0:
         raise GitCommandFailed(raw.stderr.strip())
@@ -109,6 +121,8 @@ def _dirty_files(repo):
         cwd=str(repo),
         capture_output=True,
         text=True,
+            encoding="utf-8",
+            errors="replace",
     )
     if raw.returncode != 0:
         raise GitCommandFailed(raw.stderr.strip())

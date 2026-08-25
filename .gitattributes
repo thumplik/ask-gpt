@@ -1,0 +1,13 @@
+# Line endings are declared here rather than left to each developer's
+# core.autocrlf. A shell script committed with CRLF fails on macOS and Linux
+# with an unhelpful "\r: command not found", and that is precisely the kind of
+# breakage a Windows contributor cannot see locally.
+* text=auto eol=lf
+
+# Batch files are the exception: cmd.exe mis-parses labels and multi-line
+# blocks when the file is LF-only, so these stay CRLF on every platform.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Must stay LF: these run under bash, including from Windows via WSL or Git Bash.
+*.sh text eol=lf

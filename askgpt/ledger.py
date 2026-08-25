@@ -29,12 +29,8 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
+from . import secfs
 from .errors import AskGptError
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - exercised only off-Unix
-    fcntl = None
 
 
 class Ambiguous(Exception):
@@ -80,25 +76,26 @@ def _locked(path):
     concurrent accepts collapsed to 5. An exclusive lock on a sidecar file
     makes the whole cycle atomic between processes.
     """
-    if fcntl is None:
+    if not secfs.available():
         # Refuse rather than run unlocked. Without the lock two windows lose
-        # each other's accepted risks silently, and on this platform the 0600
-        # modes this module relies on are not enforced either -- a partially
-        # working install that quietly drops both guarantees is worse than a
-        # clear refusal.
+        # each other's accepted risks silently, and a platform that cannot
+        # lock cannot protect the payloads either -- a partially working
+        # install that quietly drops both guarantees is worse than a clear
+        # refusal. Unix provides both via fcntl and 0600; Windows via
+        # msvcrt.locking and ACLs. Anything else is refused here.
         raise AskGptError(
-            "ask-gpt requires a Unix-like platform: file locking (fcntl) and\n"
-            "POSIX file permissions are both unavailable here. macOS is tested;\n"
-            "Linux is CI-tested. On Windows, use WSL."
+            "ask-gpt could not obtain the file locking and owner-only file\n"
+            "permissions it requires on this platform. macOS and Linux use\n"
+            "fcntl; Windows uses msvcrt and ACLs. Neither is available here."
         )
-    path.parent.mkdir(parents=True, exist_ok=True)
+    secfs.secure_dir(path.parent)
     lock = path.with_suffix(".lock")
     handle = os.open(str(lock), os.O_WRONLY | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        secfs.lock_exclusive(handle)
         yield
     finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        secfs.unlock(handle)
         os.close(handle)
 
 
@@ -130,11 +127,11 @@ def load_accepted(state_dir, repo_root):
 
 
 def _write(path, entries):
-    path.parent.mkdir(parents=True, exist_ok=True)
+    secfs.secure_dir(path.parent)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump({"accepted": entries}, handle, indent=2)
-    os.chmod(tmp, 0o600)
+    secfs.restrict_file(tmp)
     os.replace(tmp, path)
 
 
