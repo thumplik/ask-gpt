@@ -20,7 +20,6 @@ Two design constraints, both deliberate:
   around them shifts.
 """
 
-import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +28,13 @@ import time
 import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
+
+from .errors import AskGptError
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised only off-Unix
+    fcntl = None
 
 
 class Ambiguous(Exception):
@@ -74,6 +80,17 @@ def _locked(path):
     concurrent accepts collapsed to 5. An exclusive lock on a sidecar file
     makes the whole cycle atomic between processes.
     """
+    if fcntl is None:
+        # Refuse rather than run unlocked. Without the lock two windows lose
+        # each other's accepted risks silently, and on this platform the 0600
+        # modes this module relies on are not enforced either -- a partially
+        # working install that quietly drops both guarantees is worse than a
+        # clear refusal.
+        raise AskGptError(
+            "ask-gpt requires a Unix-like platform: file locking (fcntl) and\n"
+            "POSIX file permissions are both unavailable here. macOS is tested;\n"
+            "Linux is CI-tested. On Windows, use WSL."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_suffix(".lock")
     handle = os.open(str(lock), os.O_WRONLY | os.O_CREAT, 0o600)

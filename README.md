@@ -424,7 +424,7 @@ error stops and tells you what happened.
 | macOS | Tested, including live runs against a real account |
 | Linux | CI-tested (unit + acceptance) with a **stubbed** Codex. The live auth and inference path is **not** yet verified on Linux |
 | WSL | Untested. Codex and Claude Code must be authenticated *inside* the same WSL environment; a Windows desktop install does not satisfy that |
-| Native Windows | **Unsupported.** The installer needs Bash, Unix symlinks and Unix permissions |
+| Native Windows | **Unsupported** — use WSL. Not merely untested: the ledger needs `fcntl` file locking (no Windows equivalent wired up), and the `0600`/`0700` modes protecting payloads, response archives and thread state are not enforced by Windows. A build that looks fine while storing your conversations unprotected is worse than none, so it refuses with an explanation rather than half-working. The Bash installer and symlinks are the easy part |
 
 Passing Ubuntu CI proves the Python and installer are portable. It does not prove a real
 Linux authentication and inference path — those are different claims and only the first

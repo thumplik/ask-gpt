@@ -177,6 +177,29 @@ class RobustnessTest(unittest.TestCase):
         self.assertEqual(len(load_accepted(self.dir, "/repo")), 1)
 
 
+class PlatformTest(unittest.TestCase):
+    def test_refuses_clearly_without_file_locking(self):
+        # A Windows user previously got "ModuleNotFoundError: fcntl", which
+        # explains nothing. Unlocked operation would also silently lose
+        # accepted risks between windows, so this refuses rather than degrades.
+        import askgpt.ledger as mod
+
+        original = mod.fcntl
+        mod.fcntl = None
+        try:
+            with self.assertRaises(Exception) as ctx:
+                mod.accept(self.dir, "/repo", "F1", "r", "a.py:1 thing")
+            self.assertIn("Unix-like", str(ctx.exception))
+            self.assertIn("WSL", str(ctx.exception))
+        finally:
+            mod.fcntl = original
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+
 class FormatBlockTest(unittest.TestCase):
     def test_empty_ledger_produces_no_block(self):
         self.assertEqual(format_accepted_block([]), "")
