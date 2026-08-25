@@ -31,6 +31,13 @@ try {
         "test" {
             python -m unittest discover -s tests -v
             # `Ran 279 tests` is not a pass. The exit code is, so surface it.
+            #
+            # Do NOT pipe this through `2>&1` when invoking it. unittest writes
+            # its report to stderr, and Windows PowerShell 5.1 wraps a native
+            # command's stderr in NativeCommandError records and sets $? to
+            # false -- a fully passing run then looks like a failure. Observed
+            # while building this: `.\make.ps1 test 2>&1 | Select-Object` showed
+            # exit 1 on a run that genuinely exited 0.
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
         "lint" {
