@@ -1,4 +1,5 @@
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,6 +38,28 @@ class BuildArgvTest(unittest.TestCase):
 
     def test_never_uses_last(self):
         self.assertNotIn("--last", build_argv("/bin/codex", out_path="/tmp/o.md", resume_thread="T1"))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows sandbox policy only")
+    def test_windows_permits_the_reviewer_to_read_files(self):
+        # Without this override the reviewer reads NOTHING and returns an empty
+        # review while exiting 0 -- the worst failure shape available, since it
+        # looks like a clean pass. Codex reads files on Windows by spawning
+        # powershell.exe, its default Windows sandbox rejects that, and the
+        # setting permitting it is discarded by --ignore-user-config.
+        argv = build_argv("codex.exe", out_path="o.md")
+        self.assertIn("-c", argv)
+        self.assertIn('windows.sandbox="unelevated"', argv)
+        # The hardening must survive alongside it: -c overrides a single key,
+        # it does not re-admit the user's config file.
+        self.assertIn("--ignore-user-config", argv)
+        # And the sandbox must still be read-only. "unelevated" is chosen over
+        # "elevated" -- the only other accepted value -- as the lesser
+        # privilege; both were measured to restore reads identically.
+        self.assertEqual(argv[argv.index("-s") + 1], "read-only")
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX must not carry Windows config")
+    def test_posix_carries_no_windows_sandbox_override(self):
+        self.assertNotIn('windows.sandbox="unelevated"', build_argv("/bin/codex", out_path="/tmp/o.md"))
 
     def test_requests_the_json_event_stream(self):
         # --json is the ONLY reason thread.started is parseable. Drop it and

@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,6 +113,28 @@ def build_argv(
         "-o",
         str(out_path),
     ]
+    if sys.platform == "win32":
+        # Without this the reviewer reads nothing at all and returns an empty
+        # review while exiting 0.
+        #
+        # Codex reads files on Windows by spawning powershell.exe, and its
+        # default Windows sandbox policy rejects that:
+        #   exec_command failed ... CreateProcess ... rejected: blocked by policy
+        # The setting that permits it lives in the user's config.toml under
+        # [windows] sandbox, which --ignore-user-config discards -- so the
+        # hardening flag and the platform disagree, and the platform wins
+        # silently.
+        #
+        # Set explicitly with -c rather than by dropping --ignore-user-config:
+        # -c overrides one key while the file as a whole stays unloaded, so a
+        # user's config still cannot widen anything else.
+        #
+        # "unelevated" over "elevated" (the only two accepted values) because
+        # it is the lesser privilege and was measured to work identically.
+        # Verified on codex-cli 0.149.0-alpha.4.3 that -s read-only still holds
+        # under it: the model was asked to write a file, reported being denied,
+        # and no file appeared on disk.
+        argv += ["-c", 'windows.sandbox="unelevated"']
     if skip_git_repo_check:
         argv.append("--skip-git-repo-check")
     if resume_thread:

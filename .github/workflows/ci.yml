@@ -64,8 +64,8 @@ jobs:
         run: .\make.ps1 acceptance
 
       # A skip is invisible in a green tick. Windows is the platform where a
-      # privilege or filesystem limit can silently remove coverage, so the
-      # skips are printed and must be read.
+      # privilege or filesystem limit can silently remove coverage, so this
+      # step prints the skip list into the log alongside the result.
       - name: Report skipped tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

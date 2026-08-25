@@ -37,7 +37,13 @@ function Test-IsSymlink {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     $item = Get-Item -LiteralPath $Path -Force
-    return [bool]($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+    # LinkType, not the ReparsePoint attribute. Junctions, volume mount points
+    # and OneDrive placeholders are all reparse points, so the attribute answers
+    # "is this a symlink?" with yes for several things that are not -- and
+    # New-Link would then delete a junction somebody deliberately placed there,
+    # which is exactly the never-replace-a-non-symlink promise being broken.
+    # Measured: a junction reports ReparsePoint=True, LinkType=Junction.
+    return ($item.LinkType -eq "SymbolicLink")
 }
 
 function Get-LinkTarget {
@@ -69,9 +75,20 @@ function New-SymbolicLink {
 }
 
 function Test-SymlinkPrivilege {
-    # Probed rather than inferred: Developer Mode, elevation and group policy
-    # all feed into this, and the only trustworthy answer is to try it -- using
-    # the same mechanism the install actually uses, or the probe measures
+    # ASKGPT_TEST_NO_SYMLINK simulates an account without the privilege.
+    #
+    # This is a deliberate test seam, not a leftover. The refusal branch is the
+    # first thing an unprepared Windows user meets, and it depends on an ambient
+    # OS privilege that cannot be dropped from inside the process. A developer
+    # machine with Developer Mode enabled HAS the privilege, and so does an
+    # elevated CI runner -- so without this the branch is covered nowhere, and
+    # it was: it passed once, by accident, on a machine that happened to lack
+    # the privilege, then went silently untested the moment that was fixed.
+    if ($env:ASKGPT_TEST_NO_SYMLINK) { return $false }
+
+    # Otherwise probed rather than inferred: Developer Mode, elevation and group
+    # policy all feed into this, and the only trustworthy answer is to try it --
+    # using the same mechanism the install actually uses, or the probe measures
     # something other than what will happen.
     $probe = Join-Path ([IO.Path]::GetTempPath()) ("askgpt-symlink-probe-" + [guid]::NewGuid().ToString("N"))
     $target = $probe + "-target"
@@ -127,13 +144,15 @@ then behave differently from a macOS or Linux one.
 "@
 }
 
-New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir "commands") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir "skills") | Out-Null
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-
 $Shim = Join-Path $BinDir "askgpt.cmd"
 
-# Preflight every destination before touching any of them.
+# ---------------------------------------------------------------------------
+# Preflight. EVERYTHING that can refuse must refuse here, before the first
+# mutation of any kind -- creating a directory included. Ordering this after
+# the mkdir calls meant a conflict at the last destination still left new
+# directories behind, which is the partial install this check exists to stop.
+# ---------------------------------------------------------------------------
+
 @(
     (Join-Path $ClaudeDir "ask-gpt"),
     (Join-Path $ClaudeDir "commands\gptreview.md"),
@@ -143,11 +162,26 @@ $Shim = Join-Path $BinDir "askgpt.cmd"
     (Join-Path $ClaudeDir "skills\second-opinion")
 ) | ForEach-Object { Assert-Available $_ }
 
-# The shim is generated, not linked, so it is checked on its own terms: replace
-# one we wrote, never anything else that happens to own the name.
+# The shim is generated rather than linked, so it cannot be held to
+# "never replace a non-symlink" -- it is always a regular file. What it is held
+# to instead: replace one we wrote, never anything else owning that name.
 if ((Test-Path -LiteralPath $Shim) -and -not ((Get-Content -LiteralPath $Shim -Raw -ErrorAction SilentlyContinue) -like "*ask-gpt shim*")) {
     Write-Error "refusing to replace a file this installer did not write: $Shim`nmove or delete it, then re-run."
 }
+
+# Checked here rather than at the point of use: python is needed to write the
+# shim, and discovering its absence after six links had been replaced would
+# report failure while leaving the install half-applied.
+$python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $python) { Write-Error "python was not found on PATH; install Python 3 and re-run." }
+
+# ---------------------------------------------------------------------------
+# Past this line, mutations begin.
+# ---------------------------------------------------------------------------
+
+New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir "commands") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $ClaudeDir "skills") | Out-Null
+New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 
 New-Link $Repo                                        (Join-Path $ClaudeDir "ask-gpt")
 New-Link (Join-Path $Repo "commands\gptreview.md")    (Join-Path $ClaudeDir "commands\gptreview.md")
@@ -167,10 +201,8 @@ New-Link $Repo (Join-Path $ClaudeDir "skills\second-opinion")
 
 # bin/askgpt has a shebang, which Windows does not honour, so the CLI goes on
 # PATH as a .cmd that calls the interpreter. `python` is resolved at run time
-# rather than baked in, so upgrading Python does not break the install.
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) { Write-Error "python was not found on PATH; install Python 3 and re-run." }
-
+# rather than baked in, so upgrading Python does not break the install. Its
+# presence was already established during preflight.
 Set-Content -LiteralPath $Shim -Encoding ascii -Value @"
 @echo off
 rem ask-gpt shim -- generated by install.ps1; edit the repository instead.

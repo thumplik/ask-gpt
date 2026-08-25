@@ -68,7 +68,7 @@ def _ledger_file(state_dir, repo_root):
 
 
 @contextmanager
-def _locked(path):
+def _locked(path, state_dir=None):
     """Serialise read-modify-write across processes.
 
     accept/unaccept read the list, change it, and write it back. Two windows
@@ -88,7 +88,12 @@ def _locked(path):
             "permissions it requires on this platform. macOS and Linux use\n"
             "fcntl; Windows uses msvcrt and ACLs. Neither is available here."
         )
-    secfs.secure_dir(path.parent)
+    # Root-down, so an exposed state directory from an earlier build is
+    # repaired rather than only the per-project directory beneath it.
+    if state_dir is not None:
+        secfs.secure_tree(state_dir, "projects", path.parent.name)
+    else:
+        secfs.secure_dir(path.parent)
     lock = path.with_suffix(".lock")
     handle = os.open(str(lock), os.O_WRONLY | os.O_CREAT, 0o600)
     try:
@@ -150,7 +155,7 @@ def accept(state_dir, repo_root, finding_id, reason, description=""):
         raise ValueError("an accepted finding needs a description to identify it")
     path = _ledger_file(state_dir, repo_root)
     key = entry_key(description)
-    with _locked(path):
+    with _locked(path, state_dir):
         # Replace by KEY, never by ordinal: re-accepting a later F2 must not
         # silently delete an unrelated finding accepted as F2 weeks ago.
         entries = [e for e in load_accepted(state_dir, repo_root) if e.get("key") != key]
@@ -193,7 +198,7 @@ def unaccept(state_dir, repo_root, token):
     is the failure this whole identity model exists to prevent.
     """
     path = _ledger_file(state_dir, repo_root)
-    with _locked(path):
+    with _locked(path, state_dir):
         matches = resolve(state_dir, repo_root, token)
         if not matches:
             return False

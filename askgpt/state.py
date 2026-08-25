@@ -40,7 +40,9 @@ def _session_file(state_dir, claude_session):
 
 def save_thread(state_dir, claude_session, thread_id):
     path = _session_file(state_dir, claude_session)
-    secfs.secure_dir(path.parent)
+    # From the root down: an exposed state root left by an earlier build is
+    # repaired too, not just the directory being written into.
+    secfs.secure_tree(state_dir, "threads")
 
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -98,8 +100,7 @@ def archive_response(state_dir, claude_session, thread_id, text, payload=None):
     identity = hashlib.sha256(raw + b"\x00" + (payload or "").encode("utf-8")).hexdigest()[:12]
     digest = hashlib.sha256(raw).hexdigest()[:12]
 
-    directory = Path(state_dir) / "responses"
-    secfs.secure_dir(directory)
+    directory = secfs.secure_tree(state_dir, "responses")
     name = (
         UNSAFE.sub("_", str(claude_session or "unkeyed"))
         + "-"

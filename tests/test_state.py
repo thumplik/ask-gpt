@@ -59,6 +59,21 @@ class StateTest(unittest.TestCase):
             "an already-exposed state directory was left exposed",
         )
 
+    def test_an_exposed_state_root_is_repaired_too(self):
+        # Repairing only the directory being written into leaves the root that
+        # holds it listable and writable by everyone -- the contents protected,
+        # the container not. Found by adversarial review of the first fix.
+        root = permissive_dir(self.dir / "exposed-root")
+        (root / "threads").mkdir()
+        self.assertFalse(secfs.is_owner_only(root), "precondition: root exposed")
+
+        save_thread(root, "claude-1", "thread-a")
+
+        self.assertTrue(
+            secfs.is_owner_only(root),
+            "the state root was left exposed while its child was repaired",
+        )
+
     def test_corrupt_state_is_treated_as_empty(self):
         from askgpt.state import _session_file
 

@@ -106,6 +106,31 @@ class InstallTest(unittest.TestCase):
         self.assertIn("refusing", result.stderr.lower())
         self.assertTrue((victim / "precious.md").is_file())
 
+    @unittest.skipUnless(WINDOWS, "junctions are a Windows reparse point")
+    def test_refuses_to_replace_a_directory_junction(self):
+        # A junction is NOT a symlink, so the never-replace-a-non-symlink
+        # promise covers it. Both are reparse points though, so a check on that
+        # attribute waves junctions through and deletes one somebody placed
+        # deliberately -- OneDrive and several dev tools create them.
+        victim = self.claude / "skills" / "second-opinion"
+        victim.parent.mkdir(parents=True, exist_ok=True)
+        real = self.root / "junction-target"
+        real.mkdir()
+        (real / "precious.md").write_text("do not delete me")
+        # Arguments passed separately: embedding them in one string means
+        # list2cmdline re-quotes the quotes and cmd receives something else.
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(victim), str(real)],
+            capture_output=True,
+            check=True,
+        )
+
+        result = self.install()
+
+        self.assertNotEqual(result.returncode, 0, "installer replaced a junction")
+        self.assertIn("refusing", result.stderr.lower())
+        self.assertTrue((real / "precious.md").is_file(), "junction target was destroyed")
+
     def test_symlinks_point_at_the_right_targets(self):
         # Existence is not correctness: swapping the two command links passes
         # a .is_symlink() check while giving you the wrong prompt entirely.
@@ -143,11 +168,16 @@ class InstallTest(unittest.TestCase):
 
 @unittest.skipUnless(WINDOWS, "the privilege refusal is Windows-only")
 class WindowsSymlinkRefusalTest(unittest.TestCase):
-    @unittest.skipIf(can_symlink(), "this account can create symlinks")
     def test_refuses_clearly_without_the_privilege(self):
         # The one case that must behave well on an unprepared machine: no
         # symlink privilege. It has to explain the fix rather than fail with a
         # raw OSError, and it must not half-install anything first.
+        #
+        # Forced via ASKGPT_TEST_NO_SYMLINK rather than gated on whether this
+        # account happens to lack the privilege. Gating meant it ran only on an
+        # unprepared machine: enabling Developer Mode skipped it here, and CI is
+        # elevated so it skipped there too, leaving the branch every new user
+        # meets first covered nowhere at all.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             claude = root / "claude"
@@ -156,6 +186,7 @@ class WindowsSymlinkRefusalTest(unittest.TestCase):
                 os.environ,
                 CLAUDE_CONFIG_DIR=str(claude),
                 ASKGPT_BIN_DIR=str(root / "bin"),
+                ASKGPT_TEST_NO_SYMLINK="1",
             )
             result = subprocess.run(
                 INSTALL_ARGV, capture_output=True, text=True, env=env
@@ -163,6 +194,9 @@ class WindowsSymlinkRefusalTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Developer Mode", result.stderr)
             self.assertFalse((claude / "ask-gpt").exists())
+            # Nothing may be left half-done: no command links, no shim.
+            self.assertFalse((claude / "commands" / "gptreview.md").exists())
+            self.assertFalse((root / "bin" / CLI_NAME).exists())
 
 
 if __name__ == "__main__":

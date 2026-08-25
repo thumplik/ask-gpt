@@ -18,6 +18,7 @@ as a unit, rather than silently providing one guarantee and not the other.
 import os
 import subprocess
 import sys
+import time
 
 try:
     import fcntl
@@ -34,6 +35,12 @@ WINDOWS = sys.platform == "win32"
 #: Locking is byte-range on Windows; the region is arbitrary but must be
 #: identical in every process for the locks to actually contend.
 _LOCK_BYTES = 1
+
+#: How long lock_exclusive waits before giving up on Windows. Generous, because
+#: legitimate contention between two Claude windows is brief and losing an
+#: accepted risk is worse than waiting; finite, because a filesystem that cannot
+#: do byte-range locking would otherwise spin forever.
+LOCK_TIMEOUT = 120.0
 
 
 def available():
@@ -52,13 +59,27 @@ def lock_exclusive(handle):
     # msvcrt.locking locks a byte range from the current position, and LK_LOCK
     # gives up after ~10 seconds. flock blocks indefinitely, so retry to match
     # it: a caller that waits is correct, a caller that fails loses entries.
+    #
+    # Bounded, though. An unbounded retry cannot tell contention from a
+    # permanent failure -- a filesystem that does not implement byte-range
+    # locking raises on every attempt -- and would spin forever holding the
+    # user's terminal. A hang is a worse failure than an error, because there
+    # is nothing to read and nothing to report.
     os.lseek(handle, 0, os.SEEK_SET)
+    deadline = time.monotonic() + LOCK_TIMEOUT
     while True:
         try:
             msvcrt.locking(handle, msvcrt.LK_LOCK, _LOCK_BYTES)
             return
-        except OSError:
-            continue
+        except OSError as error:
+            if time.monotonic() >= deadline:
+                raise OSError(
+                    "could not acquire the ledger lock within "
+                    + str(LOCK_TIMEOUT)
+                    + "s: "
+                    + str(error)
+                ) from None
+            os.lseek(handle, 0, os.SEEK_SET)
 
 
 def unlock(handle):
@@ -235,3 +256,22 @@ def is_owner_only(path):
         if principal and principal != me and principal not in _ALLOWED:
             return False
     return True
+
+
+def secure_tree(root, *parts):
+    """Secure `root`, then each successive child, and return the deepest path.
+
+    `secure_dir` repairs the directory it is given. That is not enough on its
+    own for an upgrade: if an earlier build left the state ROOT permissive and
+    the child already exists, securing only the child leaves the root as it was
+    -- so the contents are protected but the directory holding them is still
+    listable and writable by others. Walking down from the root closes that.
+    """
+    from pathlib import Path as _Path
+
+    current = _Path(root)
+    secure_dir(current)
+    for part in parts:
+        current = current / part
+        secure_dir(current)
+    return current
