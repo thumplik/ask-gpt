@@ -155,8 +155,9 @@ class InstallTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            os.path.realpath(victim), str(REPO.resolve()),
-            "the dangling link was not repointed at the repository",
+            os.path.realpath(victim),
+            str((REPO / "skills" / "second-opinion").resolve()),
+            "the dangling link was not repointed at the skill directory",
         )
 
     def test_symlinks_point_at_the_right_targets(self):

@@ -1,0 +1,14 @@
+{
+  "name": "ask-gpt",
+  "owner": {
+    "name": "Tom Humplik",
+    "url": "https://github.com/thumplik"
+  },
+  "plugins": [
+    {
+      "name": "ask-gpt",
+      "source": "./",
+      "description": "Adversarial code review and second opinions from GPT via the Codex CLI, using your own ChatGPT plan. Preview: relies on undocumented Codex CLI behaviour; see the README's compatibility notes."
+    }
+  ]
+}

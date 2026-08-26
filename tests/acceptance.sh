@@ -104,15 +104,23 @@ done
 "$ASKGPT_BIN_DIR/askgpt" usage >"$WORK/u.out" 2>"$WORK/u.err"
 check "$([ $? -eq 0 ] && echo true || echo false)" "usage runs"
 
-echo "6. no overstated claims in user-facing text"
+echo "6. the documented command line actually runs"
+# The slash commands tell Claude to run a specific line from commands/*.md; every
+# other check exercises the CLI directly. On Windows that gap shipped four broken
+# commands, so the documented line itself is executed here, on every platform.
+grep 'bin/askgpt' "$CLAUDE_CONFIG_DIR/commands/gptusage.md" | head -1 > "$WORK/docline.sh"
+bash "$WORK/docline.sh" >"$WORK/doc.out" 2>"$WORK/doc.err"; rc=$?
+check "$([ $rc -eq 0 ] && echo true || echo false)" "documented /gptusage line runs under bash" "$(head -3 "$WORK/doc.err")"
+
+echo "7. no overstated claims in user-facing text"
 # Every one of these was true of an earlier design and became false when the
 # design changed. Documentation drift is the failure mode this project hits
 # most often, so the retired phrasings are asserted absent rather than trusted
 # to stay gone.
 STALE='quota is left|remaining plan quota|exactly what would leave|nothing is modified on disk|no other dependencies|fails closed rather than'
-if grep -rniE "$STALE" "$REPO/README.md" "$REPO/SKILL.md" "$REPO/commands/" >/dev/null 2>&1; then
+if grep -rniE "$STALE" "$REPO/README.md" "$REPO/skills/second-opinion/SKILL.md" "$REPO/commands/" >/dev/null 2>&1; then
   no "user-facing text free of retired claims" \
-     "$(grep -rniE "$STALE" "$REPO/README.md" "$REPO/SKILL.md" "$REPO/commands/" | head -3)"
+     "$(grep -rniE "$STALE" "$REPO/README.md" "$REPO/skills/second-opinion/SKILL.md" "$REPO/commands/" | head -3)"
 else
   ok "user-facing text free of retired claims"
 fi

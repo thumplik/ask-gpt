@@ -6,7 +6,7 @@ Run with the Bash tool, passing your own session id (the UUID in your scratchpad
 No environment variable exposes it, so it must be given explicitly:
 
 ```bash
-"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/ask-gpt/bin/askgpt ask --session-id <YOUR_SESSION_UUID> "$ARGUMENTS"
+"${CLAUDE_PLUGIN_ROOT:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/ask-gpt}"/bin/askgpt-run ask --session-id <YOUR_SESSION_UUID> "$ARGUMENTS"
 ```
 
 Relay the response verbatim, then give your own assessment: where you agree, where you

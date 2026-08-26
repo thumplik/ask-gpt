@@ -197,7 +197,11 @@ if ((Test-IsSymlink $OldSkill) -and ((Get-LinkTarget $OldSkill) -eq $Repo)) {
     Write-Host "  removed superseded skill link $OldSkill"
 }
 
-New-Link $Repo (Join-Path $ClaudeDir "skills\second-opinion")
+# The skill moved from the repo root into plugin layout (skills\second-opinion\
+# SKILL.md), so the link targets that directory now. An install made before the
+# move points at the repo root and no longer resolves a SKILL.md; New-Link
+# replaces symlinks freely, so re-running this script is the migration.
+New-Link (Join-Path $Repo "skills\second-opinion") (Join-Path $ClaudeDir "skills\second-opinion")
 
 # bin/askgpt has a shebang, which Windows does not honour, so the CLI goes on
 # PATH as a .cmd that calls the interpreter. `python` is resolved at run time

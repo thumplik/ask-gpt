@@ -1,0 +1,9 @@
+{
+  "name": "ask-gpt",
+  "description": "Adversarial code review and second opinions from GPT via the Codex CLI, using your own ChatGPT plan. Requires the Codex CLI (ChatGPT desktop app) and Python 3.9+.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Tom Humplik",
+    "url": "https://github.com/thumplik/ask-gpt"
+  }
+}

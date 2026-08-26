@@ -158,11 +158,30 @@ without your say-so.
 
 ## Install
 
+### As a Claude Code plugin (recommended)
+
+Inside Claude Code:
+
+```
+/plugin marketplace add thumplik/ask-gpt
+/plugin install ask-gpt@ask-gpt
+```
+
+Claude Code owns the install: no symlinks, no installer script, and on Windows **no
+Developer Mode**. Commands arrive namespaced — `/ask-gpt:gptreview` rather than
+`/gptreview`. You still need the Codex CLI (the ChatGPT desktop app bundles it),
+`codex login` completed, and Python 3.9+ on PATH.
+
+### From a checkout (contributors)
+
 ```bash
 git clone https://github.com/thumplik/ask-gpt
 cd ask-gpt
 ./install.sh
 ```
+
+On Windows: `.\install.ps1`, which needs Developer Mode for symlink creation — the
+plugin route above does not.
 
 The installer symlinks the commands and skill into your Claude config directory and
 verifies Codex is present and logged in. It prints the resolved binary and `auth: ok`
@@ -171,7 +190,13 @@ clobber existing files.
 
 Because it installs into `~/.claude`, the commands are available in **every project on
 your machine**, not just this repo. Editing this checkout updates them live — the
-install is symlinks, not copies.
+install is symlinks, not copies. That liveness is why this route exists for
+contributors; the plugin install is a versioned copy, which is what users want and
+developers do not.
+
+Upgrading a pre-plugin checkout install: re-run the installer once — the skill file
+moved into `skills/second-opinion/` and the old link resolves no SKILL.md until
+re-linked.
 
 ## Usage
 
@@ -438,10 +463,15 @@ Verified on Windows 10 Pro 19045, Python 3.13, `codex-cli 0.149.0-alpha.4.3` bun
 with the ChatGPT desktop app: the full unit suite passes, the Codex binary is found
 without configuration, and a real `--dry-run` builds its payload end to end.
 
-**Setup step.** Installing needs symlinks, which Windows grants only to elevated
-processes or to accounts with **Developer Mode** on (Settings → System → For
-developers). `install.ps1` refuses with that instruction rather than silently copying
-files, because a copied install goes stale on every edit with nothing to tell you.
+**Setup step — contributor installs only.** The plugin install needs no privileges at
+all; this applies to `install.ps1`. A checkout install creates symlinks, which Windows
+grants only to elevated processes or to accounts with **Developer Mode** on
+(Settings → System → For developers). Measured for the curious: the privilege is not
+even in the token with Developer Mode on — it works via
+`SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE`, which is also why PowerShell 5.1's
+`New-Item` cannot create symlinks there and this installer uses `mklink`.
+`install.ps1` refuses with instructions rather than silently copying files, because an
+unversioned copy goes stale on every edit with nothing to tell you.
 
 ```powershell
 .\install.ps1

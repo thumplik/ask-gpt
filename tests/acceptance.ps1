@@ -161,13 +161,34 @@ exit /b %ERRORLEVEL%
     $rc = Invoke-Captured @($cli, "usage") (Join-Path $Work "u.out") (Join-Path $Work "u.err")
     check ($rc -eq 0) "usage runs" (Get-Content (Join-Path $Work "u.err") -TotalCount 3 -ErrorAction SilentlyContinue)
 
-    Write-Host "6. no overstated claims in user-facing text"
+    Write-Host "6. the documented command line actually runs"
+    # The gap that let a broken Windows release through: 285 unit tests and the
+    # checks above all invoke the CLI directly or through the shim, while the
+    # slash commands tell Claude to run a specific line from commands/*.md.
+    # Nothing executed THAT line, and its shebang needed a python3 that Windows
+    # does not have. So: extract the line from the INSTALLED command file and
+    # run it under bash, exactly as Claude Code's Bash tool would.
+    $bash = (Get-Command bash -ErrorAction SilentlyContinue).Source
+    if (-not $bash) { $bash = Join-Path $env:ProgramFiles "Git\bin\bash.exe" }
+    if (Test-Path -LiteralPath $bash) {
+        $cmdFile = Join-Path $env:CLAUDE_CONFIG_DIR "commands\gptusage.md"
+        $docLine = (Get-Content -LiteralPath $cmdFile | Where-Object { $_ -match "bin/askgpt" }) | Select-Object -First 1
+        $docScript = Join-Path $Work "docline.sh"
+        # Written to a file: nesting the line's own quotes through cmd /c mangles them.
+        [IO.File]::WriteAllText($docScript, $docLine + "`n")
+        $rc = Invoke-Captured @($bash, $docScript) (Join-Path $Work "doc.out") (Join-Path $Work "doc.err")
+        check ($rc -eq 0) "documented /gptusage line runs under bash" (Get-Content (Join-Path $Work "doc.err") -TotalCount 3 -ErrorAction SilentlyContinue)
+    } else {
+        no "documented /gptusage line runs under bash" "no bash found to execute it -- Claude Code's Bash tool needs one too"
+    }
+
+    Write-Host "7. no overstated claims in user-facing text"
     # Every one of these was true of an earlier design and became false when the
     # design changed. Documentation drift is the failure mode this project hits
     # most often, so the retired phrasings are asserted absent rather than
     # trusted to stay gone.
     $stale = "quota is left|remaining plan quota|exactly what would leave|nothing is modified on disk|no other dependencies|fails closed rather than"
-    $targets = @((Join-Path $Repo "README.md"), (Join-Path $Repo "SKILL.md")) +
+    $targets = @((Join-Path $Repo "README.md"), (Join-Path $Repo "skills\second-opinion\SKILL.md")) +
                (Get-ChildItem -LiteralPath (Join-Path $Repo "commands") -File | ForEach-Object { $_.FullName })
     $hits = Select-String -LiteralPath $targets -Pattern $stale -ErrorAction SilentlyContinue
     if ($hits) {
