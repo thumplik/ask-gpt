@@ -1,0 +1,27 @@
+#!/bin/sh
+# Launch the askgpt CLI with whatever Python 3 this machine actually has.
+#
+# The slash commands used to run bin/askgpt directly and lean on its
+# `#!/usr/bin/env python3` shebang. That shipped four broken commands on
+# Windows: there is no `python3` there, only `python` -- and macOS can be the
+# mirror image, shipping `python3` but no `python`. Windows adds a trap on top:
+# a Microsoft Store stub named python3.exe can sit on PATH and fail with a
+# store prompt instead of running anything. So each candidate is EXECUTED as
+# the test, not merely found on PATH, and the version gate doubles as the
+# documented Python >= 3.9 requirement.
+#
+# POSIX sh, no bashisms: Claude Code's Bash tool provides an sh-compatible
+# shell on every platform (Git Bash on Windows), which is exactly the context
+# the slash commands run in.
+
+here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+for py in python3 python; do
+    if "$py" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+        exec "$py" "$here/askgpt" "$@"
+    fi
+done
+
+echo "askgpt: no working Python >= 3.9 was found (tried python3, then python)." >&2
+echo "Install Python 3.9+ and ensure it is on PATH." >&2
+exit 1

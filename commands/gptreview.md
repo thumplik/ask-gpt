@@ -8,7 +8,7 @@ filename under the Claude projects directory. There is no environment variable f
 verified in spec §2 — so it must be supplied on the command line.
 
 ```bash
-"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/ask-gpt/bin/askgpt review --session-id <YOUR_SESSION_UUID> $ARGUMENTS
+"${CLAUDE_PLUGIN_ROOT:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/ask-gpt}"/bin/askgpt-run review --session-id <YOUR_SESSION_UUID> $ARGUMENTS
 ```
 
 Then:

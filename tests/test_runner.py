@@ -1,10 +1,12 @@
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from askgpt.runner import MODEL, build_argv, model_chain, parse_thread_id, run
 from askgpt.errors import AskGptError, ModelUnavailable, QuotaExhausted
+from stubs import write_program
 
 
 class BuildArgvTest(unittest.TestCase):
@@ -36,6 +38,28 @@ class BuildArgvTest(unittest.TestCase):
 
     def test_never_uses_last(self):
         self.assertNotIn("--last", build_argv("/bin/codex", out_path="/tmp/o.md", resume_thread="T1"))
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows sandbox policy only")
+    def test_windows_permits_the_reviewer_to_read_files(self):
+        # Without this override the reviewer reads NOTHING and returns an empty
+        # review while exiting 0 -- the worst failure shape available, since it
+        # looks like a clean pass. Codex reads files on Windows by spawning
+        # powershell.exe, its default Windows sandbox rejects that, and the
+        # setting permitting it is discarded by --ignore-user-config.
+        argv = build_argv("codex.exe", out_path="o.md")
+        self.assertIn("-c", argv)
+        self.assertIn('windows.sandbox="unelevated"', argv)
+        # The hardening must survive alongside it: -c overrides a single key,
+        # it does not re-admit the user's config file.
+        self.assertIn("--ignore-user-config", argv)
+        # And the sandbox must still be read-only. "unelevated" is chosen over
+        # "elevated" -- the only other accepted value -- as the lesser
+        # privilege; both were measured to restore reads identically.
+        self.assertEqual(argv[argv.index("-s") + 1], "read-only")
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX must not carry Windows config")
+    def test_posix_carries_no_windows_sandbox_override(self):
+        self.assertNotIn('windows.sandbox="unelevated"', build_argv("/bin/codex", out_path="/tmp/o.md"))
 
     def test_requests_the_json_event_stream(self):
         # --json is the ONLY reason thread.started is parseable. Drop it and
@@ -90,10 +114,7 @@ class RunTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def _stub(self, body):
-        path = self.dir / "codex-stub"
-        path.write_text("#!/usr/bin/env python3\n" + body)
-        path.chmod(path.stat().st_mode | stat.S_IEXEC)
-        return str(path)
+        return write_program(self.dir / "codex-stub", body)
 
     def test_returns_text_and_thread_id(self):
         stub = self._stub(
@@ -242,7 +263,9 @@ class RunTest(unittest.TestCase):
         counter = self.dir / "attempts"
         stub = self._stub(
             "import sys, pathlib\n"
-            "p = pathlib.Path('" + str(counter) + "')\n"
+            # repr, not manual quoting: a Windows path is full of backslashes
+            # and lands in this stub's source as escape sequences otherwise.
+            "p = pathlib.Path(" + repr(str(counter)) + ")\n"
             "p.write_text(str(int(p.read_text()) + 1) if p.exists() else '1')\n"
             "sys.stderr.write('connection reset\\n')\n"
             "sys.exit(1)\n"

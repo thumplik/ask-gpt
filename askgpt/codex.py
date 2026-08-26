@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import sys
 
 from .errors import CodexNotAuthenticated, CodexNotFound
 
@@ -16,16 +17,44 @@ from .errors import CodexNotAuthenticated, CodexNotFound
 # any of them, so the version is surfaced rather than assumed.
 TESTED_VERSION = "0.148.0-alpha.9"
 
-DEFAULT_CANDIDATES = (
+_UNIX_CANDIDATES = (
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     "~/.codex/bin/codex",
     "/usr/local/bin/codex",
     "/opt/homebrew/bin/codex",
 )
 
+# Windows ships codex inside the ChatGPT desktop app and does not put it on
+# PATH, exactly as macOS does not. Measured on Windows 10 19045 with ChatGPT
+# desktop installed: the binary was at the .plugin-appserver path below and
+# nothing named codex was resolvable on PATH. The bin/ entry is listed first
+# because it is the stable, documented-looking location; the appserver path is
+# an internal detail that may well move, which is why CODEX_BIN still wins.
+_WINDOWS_CANDIDATES = (
+    "~/.codex/bin/codex.exe",
+    "~/.codex/plugins/.plugin-appserver/codex.exe",
+    "~/AppData/Local/Programs/ChatGPT/resources/codex.exe",
+)
+
+DEFAULT_CANDIDATES = _WINDOWS_CANDIDATES if sys.platform == "win32" else _UNIX_CANDIDATES
+
 
 def _usable(path: str) -> bool:
-    return os.path.isfile(path) and os.access(path, os.X_OK)
+    if not os.path.isfile(path):
+        return False
+    if sys.platform == "win32":
+        # os.access(X_OK) is meaningless on Windows: it answers True for any
+        # readable file, a .txt included, so the POSIX check would accept a
+        # stray text file as the Codex binary and fail later with WinError 193
+        # from somewhere far less obvious. Executability is decided by the
+        # extension, so PATHEXT is what to consult.
+        extensions = [
+            ext.strip().upper()
+            for ext in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";")
+            if ext.strip()
+        ]
+        return any(path.upper().endswith(ext) for ext in extensions)
+    return os.access(path, os.X_OK)
 
 
 def find_codex(env=None, candidates=DEFAULT_CANDIDATES) -> str:
@@ -35,7 +64,7 @@ def find_codex(env=None, candidates=DEFAULT_CANDIDATES) -> str:
 
     override = env.get("CODEX_BIN")
     if override:
-        expanded = os.path.expanduser(override)
+        expanded = os.path.normpath(os.path.expanduser(override))
         tried.append(expanded)
         if _usable(expanded):
             return expanded
@@ -49,7 +78,11 @@ def find_codex(env=None, candidates=DEFAULT_CANDIDATES) -> str:
     tried.append("codex on PATH (" + (searched_path or "<empty>") + ")")
 
     for candidate in candidates:
-        expanded = os.path.expanduser(candidate)
+        # normpath as well as expanduser: the candidates are written with
+        # forward slashes, so on Windows expanduser alone yields the mixed
+        # "C:\Users\you/.codex/bin/codex.exe" that then gets printed at the
+        # user during install and in every error message.
+        expanded = os.path.normpath(os.path.expanduser(candidate))
         tried.append(expanded)
         if _usable(expanded):
             return expanded
@@ -68,6 +101,8 @@ def check_auth(codex_bin: str, timeout: int = 30) -> None:
             [codex_bin, "login", "status"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -110,7 +145,12 @@ def version(codex_bin, timeout=15):
     """Return the reported version string, or None if it cannot be determined."""
     try:
         result = subprocess.run(
-            [codex_bin, "--version"], capture_output=True, text=True, timeout=timeout
+            [codex_bin, "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

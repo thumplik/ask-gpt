@@ -29,12 +29,8 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
+from . import secfs
 from .errors import AskGptError
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - exercised only off-Unix
-    fcntl = None
 
 
 class Ambiguous(Exception):
@@ -72,7 +68,7 @@ def _ledger_file(state_dir, repo_root):
 
 
 @contextmanager
-def _locked(path):
+def _locked(path, state_dir=None):
     """Serialise read-modify-write across processes.
 
     accept/unaccept read the list, change it, and write it back. Two windows
@@ -80,25 +76,31 @@ def _locked(path):
     concurrent accepts collapsed to 5. An exclusive lock on a sidecar file
     makes the whole cycle atomic between processes.
     """
-    if fcntl is None:
+    if not secfs.available():
         # Refuse rather than run unlocked. Without the lock two windows lose
-        # each other's accepted risks silently, and on this platform the 0600
-        # modes this module relies on are not enforced either -- a partially
-        # working install that quietly drops both guarantees is worse than a
-        # clear refusal.
+        # each other's accepted risks silently, and a platform that cannot
+        # lock cannot protect the payloads either -- a partially working
+        # install that quietly drops both guarantees is worse than a clear
+        # refusal. Unix provides both via fcntl and 0600; Windows via
+        # msvcrt.locking and ACLs. Anything else is refused here.
         raise AskGptError(
-            "ask-gpt requires a Unix-like platform: file locking (fcntl) and\n"
-            "POSIX file permissions are both unavailable here. macOS is tested;\n"
-            "Linux is CI-tested. On Windows, use WSL."
+            "ask-gpt could not obtain the file locking and owner-only file\n"
+            "permissions it requires on this platform. macOS and Linux use\n"
+            "fcntl; Windows uses msvcrt and ACLs. Neither is available here."
         )
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Root-down, so an exposed state directory from an earlier build is
+    # repaired rather than only the per-project directory beneath it.
+    if state_dir is not None:
+        secfs.secure_tree(state_dir, "projects", path.parent.name)
+    else:
+        secfs.secure_dir(path.parent)
     lock = path.with_suffix(".lock")
     handle = os.open(str(lock), os.O_WRONLY | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        secfs.lock_exclusive(handle)
         yield
     finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        secfs.unlock(handle)
         os.close(handle)
 
 
@@ -130,11 +132,11 @@ def load_accepted(state_dir, repo_root):
 
 
 def _write(path, entries):
-    path.parent.mkdir(parents=True, exist_ok=True)
+    secfs.secure_dir(path.parent)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump({"accepted": entries}, handle, indent=2)
-    os.chmod(tmp, 0o600)
+    secfs.restrict_file(tmp)
     os.replace(tmp, path)
 
 
@@ -153,7 +155,7 @@ def accept(state_dir, repo_root, finding_id, reason, description=""):
         raise ValueError("an accepted finding needs a description to identify it")
     path = _ledger_file(state_dir, repo_root)
     key = entry_key(description)
-    with _locked(path):
+    with _locked(path, state_dir):
         # Replace by KEY, never by ordinal: re-accepting a later F2 must not
         # silently delete an unrelated finding accepted as F2 weeks ago.
         entries = [e for e in load_accepted(state_dir, repo_root) if e.get("key") != key]
@@ -196,7 +198,7 @@ def unaccept(state_dir, repo_root, token):
     is the failure this whole identity model exists to prevent.
     """
     path = _ledger_file(state_dir, repo_root)
-    with _locked(path):
+    with _locked(path, state_dir):
         matches = resolve(state_dir, repo_root, token)
         if not matches:
             return False

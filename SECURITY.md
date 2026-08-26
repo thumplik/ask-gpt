@@ -48,10 +48,33 @@ tool. Get approval first.
 ask-gpt writes to `$ASKGPT_STATE_DIR` (default `~/.askgpt`):
 
 - `threads/` — Codex thread ids, one small JSON file per session
-- `responses/` — full review text, `0600`, newest 50 kept, older pruned automatically
+- `responses/` — full review text, owner-only, newest 50 kept, older pruned automatically
 
-Payloads go to a `0700` temp directory and are deleted after each run unless `--keep` is
-passed or a secret-scan halt preserves them for inspection. Codex separately writes its
-own session logs under `~/.codex/sessions` on every run; `askgpt usage` reads those.
+Payloads go to an owner-only temp directory and are deleted after each run unless
+`--keep` is passed or a secret-scan halt preserves them for inspection. Codex separately
+writes its own session logs under `~/.codex/sessions` on every run; `askgpt usage` reads
+those.
 
-To remove everything ask-gpt has stored: `rm -rf ~/.askgpt`
+**"Owner-only" is enforced differently per platform, and the difference matters.**
+
+On macOS and Linux it is the POSIX mode: `0600` for files, `0700` for directories.
+
+On Windows those modes do nothing. Measured on Windows 10 19045: `os.chmod(path, 0o600)`
+leaves the file at `0666`, and neither `os.open(..., 0o600)` nor `tempfile.mkstemp`
+applies the mode — a file created in a permissive directory inherits it and grants
+`NT AUTHORITY\INTERACTIVE`, meaning any logged-on user, `Modify`. Protection there is
+therefore a real ACL restricted to the owning account, applied to both directories and
+files. Two consequences worth stating plainly:
+
+- A state directory created by an earlier build inherited whatever its parent allowed.
+  It is repaired in place the next time ask-gpt writes to it, not left as it was.
+- Because a Windows file is otherwise only as protected as its directory, pointing
+  `ASKGPT_STATE_DIR` somewhere world-writable is materially riskier than on POSIX,
+  where the mode would still protect the file. The tool re-restricts what it creates,
+  but it does not audit a directory you hand it.
+
+The tests assert the resolved ACL rather than that a `chmod` call happened — on Windows
+the latter passes against a world-readable file and proves nothing.
+
+To remove everything ask-gpt has stored: `rm -rf ~/.askgpt` (PowerShell:
+`Remove-Item -Recurse -Force $env:USERPROFILE\.askgpt`)

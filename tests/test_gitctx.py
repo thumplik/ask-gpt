@@ -3,8 +3,30 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+
 from askgpt.gitctx import default_branch, resolve_target
 from askgpt.errors import GitCommandFailed, NotAGitRepo, NothingToReview
+
+# Filenames that break a naive line-or-space split. Windows rejects " < > : | ?
+# * and newline in a name, so it gets a different set rather than a thinner
+# one -- the point is to keep exercising the NUL-based parser everywhere.
+if sys.platform == "win32":
+    AWKWARD_NAMES = (
+        "a file with spaces.txt",
+        "semi;colon.txt",
+        "amp&and.txt",
+        "brack[et].txt",
+        # Escaped rather than literal so the case does not depend on this
+        # file's own encoding being read back correctly.
+        "café-unicode.txt",
+    )
+else:
+    AWKWARD_NAMES = (
+        "a file with spaces.txt",
+        'quote"name.txt',
+        "back\\slash.txt",
+    )
 
 
 def git(repo, *args):
@@ -88,11 +110,15 @@ class GitTargetTest(unittest.TestCase):
             self.assertIn(expected, target.files)
 
     def test_porcelain_handles_awkward_filenames(self):
-        (self.repo / "a file with spaces.txt").write_text("x\n")
-        (self.repo / 'quote"name.txt').write_text("x\n")
+        # The awkward set differs by platform because Windows forbids " in a
+        # filename outright. Dropping the case there would quietly stop testing
+        # the parser, so it is swapped for names that are legal on Windows and
+        # still defeat naive splitting.
+        for name in AWKWARD_NAMES:
+            (self.repo / name).write_text("x\n")
         target = resolve_target(self.repo, uncommitted=True)
-        self.assertIn("a file with spaces.txt", target.files)
-        self.assertIn('quote"name.txt', target.files)
+        for name in AWKWARD_NAMES:
+            self.assertIn(name, target.files, name)
 
     def test_porcelain_handles_renames(self):
         git(self.repo, "mv", "base.txt", "renamed.txt")
@@ -112,6 +138,11 @@ class GitTargetTest(unittest.TestCase):
         target = resolve_target(self.repo)
         self.assertEqual(target.kind, "uncommitted")
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "Windows forbids newlines in filenames, so this fixture cannot exist; "
+        "the -z NUL splitting it guards is exercised by the awkward-name test",
+    )
     def test_commit_files_with_newline_are_not_split(self):
         weird = "evil\nname.txt"
         (self.repo / weird).write_text("x\n")

@@ -182,17 +182,26 @@ class PlatformTest(unittest.TestCase):
         # A Windows user previously got "ModuleNotFoundError: fcntl", which
         # explains nothing. Unlocked operation would also silently lose
         # accepted risks between windows, so this refuses rather than degrades.
-        import askgpt.ledger as mod
+        #
+        # Windows is supported now (msvcrt locking, ACLs), so the refusal is
+        # keyed on the capability rather than on the platform: any host that
+        # provides neither backend must still fail with an explanation.
+        from askgpt import secfs
 
-        original = mod.fcntl
-        mod.fcntl = None
+        original = secfs.available
+        secfs.available = lambda: False
         try:
             with self.assertRaises(Exception) as ctx:
-                mod.accept(self.dir, "/repo", "F1", "r", "a.py:1 thing")
-            self.assertIn("Unix-like", str(ctx.exception))
-            self.assertIn("WSL", str(ctx.exception))
+                accept(self.dir, "/repo", "F1", "r", "a.py:1 thing")
+            message = str(ctx.exception)
+            # Must name the missing capability and both backends, so the
+            # reader learns what is wrong rather than which import failed.
+            self.assertIn("locking", message)
+            self.assertIn("fcntl", message)
+            self.assertIn("msvcrt", message)
+            self.assertNotIn("Traceback", message)
         finally:
-            mod.fcntl = original
+            secfs.available = original
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

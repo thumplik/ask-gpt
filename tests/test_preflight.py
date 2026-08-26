@@ -11,6 +11,7 @@ from askgpt.preflight import (
     scan_contents,
     scan_tree,
 )
+from capabilities import SYMLINK_REASON, can_symlink
 
 
 class ScanTreeTest(unittest.TestCase):
@@ -83,6 +84,11 @@ class ScanTreeTest(unittest.TestCase):
         self.assertIn("read", message.lower())
 
 
+# Not a Windows code gap: external symlinks are still detected there, but the
+# test cannot build the fixture without SeCreateSymbolicLinkPrivilege. Skipped
+# loudly rather than silently, since this covers an exfiltration path -- a
+# symlink aiming out of the repository at something Codex would then read.
+@unittest.skipUnless(can_symlink(), SYMLINK_REASON)
 class ExternalSymlinkTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

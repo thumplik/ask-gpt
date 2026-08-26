@@ -9,18 +9,25 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from . import secfs
+
 
 class Artifacts:
     def __init__(self, keep=False, parent=None):
         self.keep = keep
         self.dir = tempfile.mkdtemp(prefix="askgpt-", dir=parent)
-        os.chmod(self.dir, 0o700)
+        # mkdtemp already yields an owner-only directory on both platforms
+        # (measured: a real restrictive ACL on Windows, 0700 on POSIX). This
+        # re-asserts it so the guarantee does not rest on that implementation
+        # detail, and so `parent` overrides inherit nothing permissive.
+        secfs.secure_dir(self.dir)
 
     def write(self, name, text):
         path = Path(self.dir) / name
         fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
+        secfs.restrict_file(path)
         return path
 
     def path(self, name):

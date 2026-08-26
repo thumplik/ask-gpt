@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from askgpt import secfs
 from askgpt.state import archive_response, load_thread, save_thread
+from permissive import permissive_dir
 
 
 class StateTest(unittest.TestCase):
@@ -30,9 +32,69 @@ class StateTest(unittest.TestCase):
         save_thread(self.dir, "claude-1", "thread-b")
         self.assertEqual(load_thread(self.dir, "claude-1"), "thread-b")
 
-    def test_state_file_is_0600(self):
-        path = save_thread(self.dir, "claude-1", "thread-a")
-        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+    def test_state_file_is_owner_only(self):
+        # Written into a state directory that grants everyone access, so this
+        # measures the code rather than the default protection a temp
+        # directory happens to carry.
+        exposed = permissive_dir(self.dir / "exposed-state")
+        path = save_thread(exposed, "claude-1", "thread-a")
+        self.assertTrue(
+            secfs.is_owner_only(path),
+            "thread state is readable by more than its owner",
+        )
+
+    def test_an_existing_exposed_directory_is_repaired(self):
+        # Upgrade path. A state directory created by an earlier build inherited
+        # whatever its parent allowed, and creating it with the right mode only
+        # helps directories that do not exist yet. Anyone who ran the tool
+        # before this change already has one on disk, so writing into it has to
+        # fix it rather than assume it was made correctly.
+        threads = permissive_dir(self.dir / "threads")
+        self.assertFalse(secfs.is_owner_only(threads), "precondition: starts exposed")
+
+        save_thread(self.dir, "claude-1", "thread-a")
+
+        self.assertTrue(
+            secfs.is_owner_only(threads),
+            "an already-exposed state directory was left exposed",
+        )
+
+    def test_an_exposed_state_root_is_repaired_too(self):
+        # Repairing only the directory being written into leaves the root that
+        # holds it listable and writable by everyone -- the contents protected,
+        # the container not. Found by adversarial review of the first fix.
+        root = permissive_dir(self.dir / "exposed-root")
+        (root / "threads").mkdir()
+        self.assertFalse(secfs.is_owner_only(root), "precondition: root exposed")
+
+        save_thread(root, "claude-1", "thread-a")
+
+        self.assertTrue(
+            secfs.is_owner_only(root),
+            "the state root was left exposed while its child was repaired",
+        )
+
+    def test_migrating_a_legacy_thread_carries_protection_with_it(self):
+        # A legacy file predates owner-only storage by definition, and
+        # os.replace keeps the SOURCE ACL -- so renaming alone hands the new
+        # name an exposed file, and the migration silently launders an
+        # unprotected thread into the current format.
+        from askgpt.state import _legacy_session_file, _session_file
+
+        root = permissive_dir(self.dir / "legacy-root")
+        permissive_dir(root / "threads")
+        legacy = _legacy_session_file(root, "claude-1")
+        legacy.write_text('{"thread_id": "T-legacy"}', encoding="utf-8")
+        self.assertFalse(secfs.is_owner_only(legacy), "precondition: exposed")
+
+        self.assertEqual(load_thread(root, "claude-1"), "T-legacy")
+
+        migrated = _session_file(root, "claude-1")
+        self.assertTrue(migrated.is_file(), "the migration did not happen")
+        self.assertTrue(
+            secfs.is_owner_only(migrated),
+            "the migrated thread file kept the legacy file's exposed ACL",
+        )
 
     def test_corrupt_state_is_treated_as_empty(self):
         from askgpt.state import _session_file
@@ -118,11 +180,15 @@ class ArchiveResponseTest(unittest.TestCase):
         _, b, _ = archive_response(self.dir, "s1", "t1", "two")
         self.assertNotEqual(a, b)
 
-    def test_archive_file_is_0600(self):
-        import stat as statmod
-
-        path, _, _ = archive_response(self.dir, "s1", "t1", "x")
-        self.assertEqual(statmod.S_IMODE(path.stat().st_mode), 0o600)
+    def test_archive_file_is_owner_only(self):
+        # The archive holds the full review text, so the same reasoning as
+        # test_state_file_is_owner_only applies: use an exposed parent.
+        exposed = permissive_dir(self.dir / "exposed-archive")
+        path, _, _ = archive_response(exposed, "s1", "t1", "x")
+        self.assertTrue(
+            secfs.is_owner_only(path),
+            "the response archive is readable by more than its owner",
+        )
 
     def test_session_id_cannot_escape_the_archive_directory(self):
         path, _, _ = archive_response(self.dir, "../../evil", "t", "x")

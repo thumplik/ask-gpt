@@ -3,7 +3,7 @@ description: Best-effort snapshot of ChatGPT plan usage so far (costs nothing)
 ---
 
 ```bash
-"${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/ask-gpt/bin/askgpt usage
+"${CLAUDE_PLUGIN_ROOT:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/ask-gpt}"/bin/askgpt-run usage
 ```
 
 Report the figure as usage so far, not as remaining allowance. It reads Codex's own local session log and makes no network

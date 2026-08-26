@@ -54,9 +54,13 @@ if [ -L "$OLD_SKILL" ] && [ "$(readlink "$OLD_SKILL")" = "$REPO" ]; then
   echo "  removed superseded skill link $OLD_SKILL"
 fi
 
-link "$REPO"                          "$CLAUDE_DIR/skills/second-opinion"
+# The skill moved from the repo root into plugin layout (skills/second-opinion/
+# SKILL.md), so the link targets that directory now. An install made before the
+# move points at $REPO and no longer resolves a SKILL.md; `link` replaces
+# symlinks freely, so re-running this script is the migration.
+link "$REPO/skills/second-opinion"    "$CLAUDE_DIR/skills/second-opinion"
 
-chmod +x "$REPO/bin/askgpt"
+chmod +x "$REPO/bin/askgpt" "$REPO/bin/askgpt-run"
 
 # Put the CLI on PATH so `askgpt usage` works from any terminal, not just via
 # its full path.
